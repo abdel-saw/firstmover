@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: caseweave
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: DATABASE_URL
+        value: sqlite:///./caseweave.db
+      - key: MAX_SESSIONS
+        value: "1000"
