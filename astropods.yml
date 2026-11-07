@@ -8,6 +8,7 @@ agent:
     frontend: true
     messaging: false
   healthcheck:
+    interval: 30s
     timeout: 10s
     test: ["python", "-c", "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1/health', timeout=3).close()"]
   inputs:
@@ -27,6 +28,10 @@ agent:
       datatype: number
       default: "6"
       description: Maximum inference attempts per minute in this worker.
+    - name: DRAFTER_POLL_SECONDS
+      datatype: number
+      default: "5"
+      description: Seconds between worker polls; reuses one HTTPS connection pool.
     - name: AI_MAX_TOKENS
       datatype: number
       default: "1800"

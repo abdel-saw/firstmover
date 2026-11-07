@@ -301,3 +301,26 @@ def test_single_json_fence_preserves_validated_sources(monkeypatch):
     monkeypatch.setattr('caseweave.drafting.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(reply),**kw))
     result=asyncio.run(provider_draft({"evidence":[{"id":x} for x in ['E2','E3','E4']]},worker_settings().ai))
     assert result==generated()
+
+
+def test_worker_reuses_client_across_idle_polls_and_closes_it(monkeypatch):
+    actual=httpx.AsyncClient
+    clients=[]
+    requests=[]
+    stop=asyncio.Event()
+    def reply(request):
+        requests.append(request)
+        if len(requests)==3:
+            stop.set()
+        return httpx.Response(200,json={"job":None})
+    def create(**kwargs):
+        client=actual(transport=httpx.MockTransport(reply),**kwargs)
+        clients.append(client)
+        return client
+    monkeypatch.setattr('caseweave.drafter.httpx.AsyncClient',create)
+    worker=DraftWorker(worker_settings(poll_seconds=0.2))
+    asyncio.run(worker.run(stop))
+    assert len(requests)==3
+    assert len(clients)==1
+    assert clients[0].is_closed
+    assert worker.calls==0

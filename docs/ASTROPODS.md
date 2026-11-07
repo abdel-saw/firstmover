@@ -108,7 +108,7 @@ Identical case inputs reuse their completed result to avoid repeat inference. Fa
 
 ## Limits and persistence
 
-- Default polling interval: 2 seconds.
+- Default polling interval: 5 seconds (configurable with `DRAFTER_POLL_SECONDS`).
 - At most 6 inference attempts per minute and 100 per worker process by default.
 - At most 30,000 source-text characters per job and 1,800 requested completion tokens by default.
 - `DRAFTER_MAX_CALLS`, `DRAFTER_REQUESTS_PER_MINUTE`, and `AI_MAX_TOKENS` are declared deploy-time inputs.
@@ -150,3 +150,7 @@ ast agent logs --name caseweave-drafter
 Wait for Render to deploy the same source revision before testing the worker. Reset sample cases, then analyze once. The fallback notice now distinguishes gateway authentication, rate/quota limits, rejected model requests, unavailable service, malformed output, invalid citations, and unclaimed/unfinished jobs. The API response includes a safe `fallback_reason` code. Logs include codes and HTTP status, never raw gateway responses, credentials, or evidence.
 
 `GET /api/config` on Render includes `worker_connected_recently`: an authenticated worker poll reached this server process within 30 seconds. This process-local indicator resets on restart and is not a global health guarantee. The Astropods worker status page includes its latest stage, last error, and inference-attempt count. A failed job remains failed; reset sample cases after fixing its cause to run a new attempt.
+
+## CPU use
+
+The worker reuses one Render HTTP client across polls, retaining its TLS context and HTTPS connection pool. Previously it rebuilt the client every two seconds, adding avoidable CPU work even when there were no cases. Polling now defaults to five seconds, with a 30-second health-check interval. These changes reduce idle overhead; no model runs inside the worker container. They do not establish the cause of a platform CPU-limit event or guarantee a particular resource allocation. Inspect CPU metrics and the exact event if limits persist after deployment. Polling may add up to about five seconds before a new job is claimed; avoid concurrent demo analyses on a small allocation.

@@ -30,7 +30,7 @@ class WorkerSettings:
     shared_token: str = field(default_factory=lambda: os.getenv("DRAFTER_SHARED_TOKEN", ""))
     requests_per_minute: int = field(default_factory=lambda: int(os.getenv("DRAFTER_REQUESTS_PER_MINUTE", "6")))
     max_calls_per_process: int = field(default_factory=lambda: int(os.getenv("DRAFTER_MAX_CALLS", "100")))
-    poll_seconds: float = field(default_factory=lambda: float(os.getenv("DRAFTER_POLL_SECONDS", "2")))
+    poll_seconds: float = field(default_factory=lambda: float(os.getenv("DRAFTER_POLL_SECONDS", "5")))
 
     def __post_init__(self):
         if self.ai.ai_transport != "direct":
@@ -120,69 +120,78 @@ class DraftWorker:
                 # Retry only the same completion; never run gateway inference again.
                 await asyncio.sleep(0.2)
 
-    async def run_once(self):
+    def render_client(self):
+        # Keep TLS state and connections across polls; never share the service token with the gateway.
+        return httpx.AsyncClient(timeout=10, follow_redirects=False,
+                                 limits=httpx.Limits(max_connections=2, max_keepalive_connections=1,
+                                                     keepalive_expiry=30),
+                                 headers={"Authorization": "Bearer " + self.settings.shared_token})
+
+    async def run_once(self, client=None):
         if not self.settings.configured or not self.can_infer():
             return False
-        async with httpx.AsyncClient(timeout=10, follow_redirects=False,
-                                     headers={"Authorization": "Bearer " + self.settings.shared_token}) as client:
-            self.last_stage = "claim"
-            response = await client.post(self.settings.caseweave_url + "/api/internal/drafting/claim")
-            response.raise_for_status()
-            job = response.json().get("job")
-            if job is None:
-                self.last_stage = "idle"
-                return False
-            if (not isinstance(job, dict) or not re.fullmatch(r"[a-f0-9]{32}", str(job.get("id", "")))
-                    or not isinstance(job.get("lease_token"), str) or not 32 <= len(job["lease_token"]) <= 128):
-                raise ValueError("Invalid leased job")
-            try:
-                body = DraftRequest.model_validate(job["payload"])
-            except (ValidationError, KeyError, TypeError):
-                self.last_error = "invalid_input"
-                log.warning("Drafting failure: invalid_input")
-                await self.complete(client, job, error="invalid_input")
-                return True
-            data = {**body.case.model_dump(), "evidence": [e.model_dump() for e in body.evidence]}
-            checks = check_case(data)
-            prompt = {"case": body.case.model_dump(), "evidence": data["evidence"],
-                      "checks": checks["findings"], "missing": checks["missing"]}
-            self.timestamps.append(time.monotonic())
-            self.calls += 1
-            try:
-                self.last_stage = "gateway"
-                generated = await provider_draft(prompt, self.settings.ai)
-                result = {**generated, "model": self.settings.ai.ai_model}
-            except DraftFailure as exc:
-                self.last_error = exc.code
-                log.warning("Drafting failure: %s; HTTP status: %s", exc.code, exc.http_status or "none")
-                self.last_stage = "completion"
-                await self.complete(client, job, error=exc.code)
-                return True
-            except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-                self.last_error = "gateway_failed"
-                log.warning("Drafting failure: gateway_failed")
-                await self.complete(client, job, error="gateway_failed")
-                return True
-            self.last_stage = "completion"
-            await self.complete(client, job, result=result)
-            self.last_stage = "completed"
-            self.last_error = None
+        if client is None:
+            async with self.render_client() as owned_client:
+                return await self.run_once(owned_client)
+        self.last_stage = "claim"
+        response = await client.post(self.settings.caseweave_url + "/api/internal/drafting/claim")
+        response.raise_for_status()
+        job = response.json().get("job")
+        if job is None:
+            self.last_stage = "idle"
+            return False
+        if (not isinstance(job, dict) or not re.fullmatch(r"[a-f0-9]{32}", str(job.get("id", "")))
+                or not isinstance(job.get("lease_token"), str) or not 32 <= len(job["lease_token"]) <= 128):
+            raise ValueError("Invalid leased job")
+        try:
+            body = DraftRequest.model_validate(job["payload"])
+        except (ValidationError, KeyError, TypeError):
+            self.last_error = "invalid_input"
+            log.warning("Drafting failure: invalid_input")
+            await self.complete(client, job, error="invalid_input")
             return True
+        data = {**body.case.model_dump(), "evidence": [e.model_dump() for e in body.evidence]}
+        checks = check_case(data)
+        prompt = {"case": body.case.model_dump(), "evidence": data["evidence"],
+                  "checks": checks["findings"], "missing": checks["missing"]}
+        self.timestamps.append(time.monotonic())
+        self.calls += 1
+        try:
+            self.last_stage = "gateway"
+            generated = await provider_draft(prompt, self.settings.ai)
+            result = {**generated, "model": self.settings.ai.ai_model}
+        except DraftFailure as exc:
+            self.last_error = exc.code
+            log.warning("Drafting failure: %s; HTTP status: %s", exc.code, exc.http_status or "none")
+            self.last_stage = "completion"
+            await self.complete(client, job, error=exc.code)
+            return True
+        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+            self.last_error = "gateway_failed"
+            log.warning("Drafting failure: gateway_failed")
+            await self.complete(client, job, error="gateway_failed")
+            return True
+        self.last_stage = "completion"
+        await self.complete(client, job, result=result)
+        self.last_stage = "completed"
+        self.last_error = None
+        return True
 
     async def run(self, stop):
-        while not stop.is_set():
-            try:
-                await self.run_once()
-            except httpx.HTTPStatusError as exc:
-                self.last_error = "render_http_" + str(exc.response.status_code)
-                log.warning("Render worker request failed at %s: HTTP %s. No gateway retry.", self.last_stage, exc.response.status_code)
-            except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
-                self.last_error = "worker_transport_failed"
-                log.warning("Render worker request failed at %s: %s. No gateway retry.", self.last_stage, type(exc).__name__)
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=self.settings.poll_seconds)
-            except asyncio.TimeoutError:
-                pass
+        async with self.render_client() as client:
+            while not stop.is_set():
+                try:
+                    await self.run_once(client)
+                except httpx.HTTPStatusError as exc:
+                    self.last_error = "render_http_" + str(exc.response.status_code)
+                    log.warning("Render worker request failed at %s: HTTP %s. No gateway retry.", self.last_stage, exc.response.status_code)
+                except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                    self.last_error = "worker_transport_failed"
+                    log.warning("Render worker request failed at %s: %s. No gateway retry.", self.last_stage, type(exc).__name__)
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=self.settings.poll_seconds)
+                except asyncio.TimeoutError:
+                    pass
 
 
 def create_worker_app(settings=None):
