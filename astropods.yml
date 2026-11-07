@@ -8,7 +8,7 @@ agent:
     frontend: true
     messaging: false
   healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health', timeout=5)"]
+    test: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health', timeout=5)"]
   inputs:
     - name: CASEWEAVE_URL
       datatype: string
