@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
@@ -16,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from .config import Settings
 from .db import database, Visitor, Case, Submission, DraftJob
 from .draft_queue import DraftQueue
+from .drafting import DraftErrorCode
 from .samples import sample_cases
 from .analysis import analyze, timestamp
 from .paypal import PayPal, PayPalError, normalize, can_submit
@@ -53,7 +55,7 @@ class WorkerCompletion(BaseModel):
     model_config = ConfigDict(extra="forbid")
     lease_token: str = Field(min_length=32, max_length=128)
     result: dict | None = None
-    error: Literal["invalid_input", "gateway_failed"] | None = None
+    error: DraftErrorCode | None = None
 
     @model_validator(mode="after")
     def one_outcome(self):
@@ -146,7 +148,7 @@ def create_app(settings=None):
 
     @app.get("/api/config")
     def config():
-        return {"ai_configured":settings.ai_configured,"ai_model":("Astropods drafting worker" if settings.queue_drafter_configured else settings.ai_model) if settings.ai_configured else None,"ai_transport":"astropods_queue" if settings.queue_drafter_configured else "direct","paypal_configured":settings.paypal_configured,"paypal_environment":"sandbox","version":"0.1.0"}
+        return {"ai_configured":settings.ai_configured,"ai_model":("Astropods drafting worker" if settings.queue_drafter_configured else settings.ai_model) if settings.ai_configured else None,"ai_transport":"astropods_queue" if settings.queue_drafter_configured else "direct","worker_connected_recently":bool(queue.last_worker_contact and time.time()-queue.last_worker_contact<30),"paypal_configured":settings.paypal_configured,"paypal_environment":"sandbox","version":"0.1.0"}
 
     @app.post("/api/session")
     def start(request:Request,response:Response,session=Depends(db)):

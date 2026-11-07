@@ -2,7 +2,7 @@
 import json
 from datetime import datetime
 import httpx
-from .drafting import provider_draft
+from .drafting import provider_draft, DraftFailure
 
 
 def timestamp(value):
@@ -65,6 +65,9 @@ async def analyze(case, settings, queue_runner=None):
             model = settings.ai_model
         result.update(draft=data["draft"], claims=data["claims"], engine="ai", model=model,
                       notice="AI draft: verify every statement against its source before approval. Citation checks validate IDs, not factual entailment.")
+    except DraftFailure as exc:
+        result["fallback_reason"] = exc.code
+        result["notice"] = str(exc) + " Showing the evidence-check draft instead."
     except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
         result["notice"]="AI drafting was unavailable or failed source validation. Showing the evidence-check draft instead."
     return result

@@ -172,6 +172,8 @@ def test_gateway_failure_completes_job_as_failed_and_falls_back(setup,monkeypatc
     assert 'failed source validation' in result['notice']
     assert worker.calls==1
     assert len(calls)==3
+    assert result['fallback_reason']=='invalid_citations'
+    assert worker.last_error=='invalid_citations'
 
 
 def test_lost_completion_ack_retries_result_not_gateway(setup,monkeypatch):
@@ -263,3 +265,39 @@ def test_direct_mode_does_not_allow_worker_claims(tmp_path):
     app=create_app(Settings(database_url=f"sqlite:///{tmp_path/'direct.db'}",drafter_shared_token=TOKEN))
     with TestClient(app) as client:
         assert client.post('/api/internal/drafting/claim',headers=HEADERS).status_code==403
+
+
+@pytest.mark.parametrize("status,code", [(401,"gateway_auth_failed"),(403,"gateway_auth_failed"),(429,"gateway_rate_limited"),(400,"gateway_request_rejected"),(503,"gateway_unavailable")])
+def test_gateway_status_is_safe_and_actionable(monkeypatch,status,code):
+    from caseweave.drafting import provider_draft,DraftFailure
+    actual=httpx.AsyncClient
+    def reply(request):
+        return httpx.Response(status,json={"error":"secret-provider-body"})
+    monkeypatch.setattr('caseweave.drafting.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(reply),**kw))
+    with pytest.raises(DraftFailure) as error:
+        asyncio.run(provider_draft({"evidence":[]},worker_settings().ai))
+    assert error.value.code==code
+    assert error.value.http_status==status
+    assert 'secret-provider-body' not in str(error.value)
+
+
+@pytest.mark.parametrize("content,finish,code", [('{bad','stop','invalid_model_json'),('{}','length','model_output_truncated'),('{}','stop','invalid_model_schema'),(json.dumps({'draft':'x'*2001,'claims':[]}),'stop','draft_too_long')])
+def test_model_output_failure_categories(monkeypatch,content,finish,code):
+    from caseweave.drafting import provider_draft,DraftFailure
+    actual=httpx.AsyncClient
+    def reply(request):
+        return httpx.Response(200,json={"choices":[{"finish_reason":finish,"message":{"content":content}}]})
+    monkeypatch.setattr('caseweave.drafting.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(reply),**kw))
+    with pytest.raises(DraftFailure) as error:
+        asyncio.run(provider_draft({"evidence":[]},worker_settings().ai))
+    assert error.value.code==code
+
+
+def test_single_json_fence_preserves_validated_sources(monkeypatch):
+    from caseweave.drafting import provider_draft
+    actual=httpx.AsyncClient
+    def reply(request):
+        return httpx.Response(200,json={"choices":[{"message":{"content":"```json\n"+json.dumps(generated())+"\n```"}}]})
+    monkeypatch.setattr('caseweave.drafting.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(reply),**kw))
+    result=asyncio.run(provider_draft({"evidence":[{"id":x} for x in ['E2','E3','E4']]},worker_settings().ai))
+    assert result==generated()

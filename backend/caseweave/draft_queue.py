@@ -11,7 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from .db import Case, DraftJob
-from .drafting import validate_draft
+from .drafting import validate_draft, DraftFailure
 
 
 def envelope(case):
@@ -25,6 +25,7 @@ def input_digest(payload):
 class DraftQueue:
     def __init__(self, factory, settings):
         self.factory, self.settings = factory, settings
+        self.last_worker_contact = None
 
     async def run(self, case):
         payload = envelope(case)
@@ -42,25 +43,30 @@ class DraftQueue:
                     db.rollback()
                     job = db.scalar(select(DraftJob).where(DraftJob.case_id == case["id"], DraftJob.input_digest == digest))
             if job is None:
-                raise ValueError("Draft job was removed during creation")
+                raise DraftFailure("worker_job_removed")
             job_id = job.id
         while True:
             with self.factory() as db:
                 job = db.get(DraftJob, job_id)
                 if not job:
-                    raise ValueError("Draft job was removed")
+                    raise DraftFailure("worker_job_removed")
                 if job.state == "completed":
                     return json.loads(job.result)
-                if job.state in ("failed", "expired", "superseded"):
-                    raise ValueError("Draft job did not complete")
+                if job.state == "failed":
+                    raise DraftFailure(job.error or "gateway_failed")
+                if job.state == "superseded":
+                    raise DraftFailure("worker_job_inactive")
+                if job.state == "expired":
+                    raise DraftFailure("worker_timeout_claimed" if job.lease_hash else "worker_timeout_unclaimed")
                 if job.expires <= time.time():
                     db.execute(update(DraftJob).where(DraftJob.id == job_id, DraftJob.state.in_(("pending", "leased"))).values(state="expired"))
                     db.commit()
-                    raise ValueError("Draft worker timed out")
+                    raise DraftFailure("worker_timeout_claimed" if job.lease_hash else "worker_timeout_unclaimed")
             await asyncio.sleep(0.2)
 
     def claim(self):
         current = time.time()
+        self.last_worker_contact = current
         with self.factory() as db:
             db.execute(update(DraftJob).where(DraftJob.state.in_(("pending", "leased")), DraftJob.expires <= current).values(state="expired"))
             candidates = db.scalars(select(DraftJob).where(DraftJob.state == "pending", DraftJob.expires > current).order_by(DraftJob.expires).limit(10)).all()

@@ -8,7 +8,8 @@ agent:
     frontend: true
     messaging: false
   healthcheck:
-    test: ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health', timeout=5)"]
+    timeout: 10s
+    test: ["python", "-c", "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1/health', timeout=3).close()"]
   inputs:
     - name: CASEWEAVE_URL
       datatype: string

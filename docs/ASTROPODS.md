@@ -135,3 +135,18 @@ The hosted sample review/approval/simulated-submission workflow was browser-veri
 - [Portable JSON output](https://docs.astropods.com/ai-gateway/chat)
 - [Blueprint push/deploy](https://docs.astropods.com/cli/blueprint)
 - [Secrets](https://docs.astropods.com/secrets)
+
+## Troubleshooting an Active worker with rule-based drafts
+
+An Active deployment does not establish that a gateway call succeeded. A startup-probe event can describe an earlier failure; check its last occurrence and current logs. The probe bypasses environment HTTP proxies for loopback, uses a 3-second HTTP timeout, and allows 10 seconds for the whole Python process. `/health` checks configuration presence only.
+
+After publishing an updated blueprint, update the existing agent:
+
+```bash
+ast agent redeploy --name caseweave-drafter --var "DRAFTER_SHARED_TOKEN=@" --wait
+ast agent logs --name caseweave-drafter
+```
+
+Wait for Render to deploy the same source revision before testing the worker. Reset sample cases, then analyze once. The fallback notice now distinguishes gateway authentication, rate/quota limits, rejected model requests, unavailable service, malformed output, invalid citations, and unclaimed/unfinished jobs. The API response includes a safe `fallback_reason` code. Logs include codes and HTTP status, never raw gateway responses, credentials, or evidence.
+
+`GET /api/config` on Render includes `worker_connected_recently`: an authenticated worker poll reached this server process within 30 seconds. This process-local indicator resets on restart and is not a global health guarantee. The Astropods worker status page includes its latest stage, last error, and inference-attempt count. A failed job remains failed; reset sample cases after fixing its cause to run a new attempt.

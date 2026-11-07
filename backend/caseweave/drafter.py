@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationEr
 
 from .analysis import check_case
 from .config import Settings
-from .drafting import provider_draft
+from .drafting import provider_draft, DraftFailure
 
 log = logging.getLogger("caseweave.drafter")
 
@@ -97,6 +97,8 @@ class DraftWorker:
         self.settings = settings
         self.timestamps = deque()
         self.calls = 0
+        self.last_error = None
+        self.last_stage = "starting"
 
     def can_infer(self):
         current = time.monotonic()
@@ -123,10 +125,12 @@ class DraftWorker:
             return False
         async with httpx.AsyncClient(timeout=10, follow_redirects=False,
                                      headers={"Authorization": "Bearer " + self.settings.shared_token}) as client:
+            self.last_stage = "claim"
             response = await client.post(self.settings.caseweave_url + "/api/internal/drafting/claim")
             response.raise_for_status()
             job = response.json().get("job")
             if job is None:
+                self.last_stage = "idle"
                 return False
             if (not isinstance(job, dict) or not re.fullmatch(r"[a-f0-9]{32}", str(job.get("id", "")))
                     or not isinstance(job.get("lease_token"), str) or not 32 <= len(job["lease_token"]) <= 128):
@@ -134,6 +138,8 @@ class DraftWorker:
             try:
                 body = DraftRequest.model_validate(job["payload"])
             except (ValidationError, KeyError, TypeError):
+                self.last_error = "invalid_input"
+                log.warning("Drafting failure: invalid_input")
                 await self.complete(client, job, error="invalid_input")
                 return True
             data = {**body.case.model_dump(), "evidence": [e.model_dump() for e in body.evidence]}
@@ -143,20 +149,36 @@ class DraftWorker:
             self.timestamps.append(time.monotonic())
             self.calls += 1
             try:
+                self.last_stage = "gateway"
                 generated = await provider_draft(prompt, self.settings.ai)
                 result = {**generated, "model": self.settings.ai.ai_model}
+            except DraftFailure as exc:
+                self.last_error = exc.code
+                log.warning("Drafting failure: %s; HTTP status: %s", exc.code, exc.http_status or "none")
+                self.last_stage = "completion"
+                await self.complete(client, job, error=exc.code)
+                return True
             except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+                self.last_error = "gateway_failed"
+                log.warning("Drafting failure: gateway_failed")
                 await self.complete(client, job, error="gateway_failed")
                 return True
+            self.last_stage = "completion"
             await self.complete(client, job, result=result)
+            self.last_stage = "completed"
+            self.last_error = None
             return True
 
     async def run(self, stop):
         while not stop.is_set():
             try:
                 await self.run_once()
-            except (httpx.HTTPError, ValueError, KeyError, TypeError):
-                log.warning("Drafting poll/completion failed; no gateway retry. Check configuration and service availability.")
+            except httpx.HTTPStatusError as exc:
+                self.last_error = "render_http_" + str(exc.response.status_code)
+                log.warning("Render worker request failed at %s: HTTP %s. No gateway retry.", self.last_stage, exc.response.status_code)
+            except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                self.last_error = "worker_transport_failed"
+                log.warning("Render worker request failed at %s: %s. No gateway retry.", self.last_stage, type(exc).__name__)
             try:
                 await asyncio.wait_for(stop.wait(), timeout=self.settings.poll_seconds)
             except asyncio.TimeoutError:
@@ -170,6 +192,14 @@ def create_worker_app(settings=None):
     @asynccontextmanager
     async def lifespan(app):
         stop = asyncio.Event()
+        if not settings.configured:
+            missing = []
+            if not settings.caseweave_url: missing.append("CASEWEAVE_URL")
+            if len(settings.shared_token) < 32: missing.append("DRAFTER_SHARED_TOKEN")
+            if not settings.ai.ai_base_url: missing.append("ASTRO_GATEWAY_URL/AI_BASE_URL")
+            if not settings.ai.ai_api_key: missing.append("ASTRO_GATEWAY_API_KEY/AI_API_KEY")
+            if not settings.ai.ai_model: missing.append("MODEL_DEFAULT/AI_MODEL")
+            log.warning("Draft worker inactive; missing or invalid settings: %s", ", ".join(missing))
         task = asyncio.create_task(worker.run(stop)) if settings.configured else None
         try:
             yield
@@ -183,13 +213,14 @@ def create_worker_app(settings=None):
     app.state.worker = worker
 
     @app.get("/")
-    def status():
+    async def status():
         return {"service": "CaseWeave drafting worker", "transport": "outbound queue",
-                "configured": settings.configured,
+                "configured": settings.configured, "last_stage": worker.last_stage,
+                "last_error": worker.last_error, "inference_attempts": worker.calls,
                 "note": "Use the CaseWeave application on Render to analyze a case. This worker has no chat or inbound inference API."}
 
     @app.get("/health")
-    def health():
+    async def health():
         # Configuration presence only; not proof of live gateway or Render authentication.
         return JSONResponse({"status": "configured" if settings.configured else "not_configured"}, status_code=200 if settings.configured else 503)
 
