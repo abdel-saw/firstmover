@@ -20,15 +20,15 @@ agent:
       description: Private service token, at least 32 characters; also configured in Render.
     - name: DRAFTER_MAX_CALLS
       datatype: number
-      default: 100
+      default: "100"
       description: Inference attempts per process; resets on restart, not a dollar spending limit.
     - name: DRAFTER_REQUESTS_PER_MINUTE
       datatype: number
-      default: 6
+      default: "6"
       description: Maximum inference attempts per minute in this worker.
     - name: AI_MAX_TOKENS
       datatype: number
-      default: 1800
+      default: "1800"
       description: Requested completion-token cap; input tokens also incur charges.
 models:
   default:
