@@ -4,7 +4,7 @@
 
 CaseWeave organizes records into a timeline, identifies missing and conflicting evidence, prepares a reviewable response, and records an explicit approval before submission. PayPal or the financial institution remains responsible for adjudication.
 
-> **Current status:** runnable application with synthetic sample workflows, optional AI drafting, an outbound Astropods drafting worker, and a sandbox-only PayPal adapter. The adapter is tested with mocked HTTP responses; actual PayPal access and model inference must be configured and verified before submission to the hackathon. The app is hosted at https://caseweave.onrender.com/; the sample review workflow was browser-verified on November 7, 2026. Actual PayPal and model integration remain unverified.
+> **Current status:** hosted application with synthetic sample workflows, AI drafting through an Astropods worker, and a sandbox-only PayPal adapter. The user has confirmed AI drafts on all three sample cases. PayPal API authentication, real dispute import, and evidence acceptance still need live verification. The adapter and connection diagnostics are covered by mocked HTTP tests. Hosted demo: https://caseweave.onrender.com/.
 
 ## Try it locally
 
@@ -80,15 +80,17 @@ All calls are fixed to `https://api-m.sandbox.paypal.com`. There is no live-paym
 
 1. Configure the merchant app and enable Disputes in its features.
 2. Set server-side sandbox credentials and `ADMIN_TOKEN`.
-3. Obtain an actual dispute belonging to that merchant/app. Creating disputes via the sandbox creation API needs additional buyer-side permissions and an enabled `DISPUTE_CREATE` scope; simply creating an app does **not** establish that access. Use PayPal's documented sandbox setup or ask the hackathon PayPal team for an eligible test case.
-4. In Connections, enter the operator token and `PP-…` dispute ID, then import it.
-5. Import retrieves dispute facts only. It does not invent a payment, cancellation confirmation, subscription agreement, or delivery record. Add those separately as merchant-supplied text; they are marked unverified.
-6. Analyze, edit, review, and approve the exact draft version.
-7. Submit the approved note to the sandbox. CaseWeave refreshes dispute details and checks `WAITING_FOR_SELLER_RESPONSE`, the available `provide_evidence` action, and the requested evidence types. The first version supports **OTHER note evidence only**; it does not attach original files or send tracking/refund-specific evidence.
+3. In **Connections**, enter the operator `ADMIN_TOKEN` and select **Test PayPal connection**. This checks OAuth authentication and reads up to ten disputes created in the last 179 days. An empty successful list verifies read access, not import or submission. A 403 after successful authentication points to Disputes permissions/account access. Enable **Disputes** in the sandbox app feature options. No access token or PayPal client secret is returned to the browser.
+4. Obtain an actual dispute belonging to that merchant/app. Creating disputes via the sandbox creation API needs additional buyer-side permissions and an enabled `DISPUTE_CREATE` scope; simply creating an app does **not** establish that access. Use PayPal's documented sandbox setup or ask the hackathon PayPal team for an eligible test case.
+5. In Connections, enter the operator token and `PP-…` dispute ID, then import it.
+6. Import retrieves dispute facts only. It does not invent a payment, cancellation confirmation, subscription agreement, or delivery record. Add those separately as merchant-supplied text; they are marked unverified.
+7. Analyze, edit, review, and approve the exact draft version.
+8. Submit the approved note to the sandbox. CaseWeave refreshes dispute details and checks `WAITING_FOR_SELLER_RESPONSE`, the available `provide_evidence` action, and the requested evidence types. The first version supports **OTHER note evidence only**; it does not attach original files or send tracking/refund-specific evidence.
 
 API operations:
 
 - `POST /v1/oauth2/token`
+- `GET /v1/customer/disputes` (operator connection check)
 - `GET /v1/customer/disputes/{id}`
 - `POST /v1/customer/disputes/{id}/provide-evidence` using multipart `input`
 

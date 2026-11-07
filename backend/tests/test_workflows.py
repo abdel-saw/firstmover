@@ -321,3 +321,50 @@ def test_incomplete_native_gateway_does_not_send_key_to_default_provider(monkeyp
     settings=Settings()
     assert settings.ai_base_url==''
     assert not settings.ai_configured
+
+@pytest.mark.parametrize('auth_status,list_status,items,authenticated,access',[
+    (401,200,[],False,False),
+    (200,403,[],True,False),
+    (200,200,[],True,True),
+    (200,200,[{'dispute_id':'PP-D-TEST123','status':'WAITING_FOR_SELLER_RESPONSE','reason':'CANCELED_RECURRING_BILLING','buyer_email':'private@example.com'}],True,True),
+])
+def test_paypal_connection_stages_and_secret_separation(client,monkeypatch,auth_status,list_status,items,authenticated,access):
+    actual=httpx.AsyncClient
+    calls=[]
+    def handler(request):
+        calls.append(request)
+        assert request.url.host=='api-m.sandbox.paypal.com'
+        if request.url.path.endswith('/token'):
+            return httpx.Response(auth_status,json={'access_token':'private-access-token','error':'private-provider-error'})
+        assert request.method=='GET'
+        assert request.url.path=='/v1/customer/disputes'
+        assert request.url.params['page_size']=='10'
+        assert 'create_time_after' in request.url.params
+        assert request.headers['authorization']=='Bearer private-access-token'
+        return httpx.Response(list_status,json={'items':items,'error':'private-provider-error'})
+    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
+    assert client.post('/api/sandbox/check').status_code==403
+    assert not calls
+    response=client.post('/api/sandbox/check',headers={'Authorization':'Bearer test-admin'})
+    assert response.status_code==200
+    result=response.json()
+    assert result['authenticated']==authenticated
+    assert result['disputes_access']==access
+    assert len(calls)==(2 if authenticated else 1)
+    for secret in ['private-access-token','private-provider-error','never-return-this-secret','private@example.com']:
+        assert secret not in response.text
+    if items and access:
+        assert set(result['disputes'][0])=={'dispute_id','status','reason'}
+
+
+def test_paypal_connection_rejects_malformed_list(client,monkeypatch):
+    actual=httpx.AsyncClient
+    def handler(request):
+        if request.url.path.endswith('/token'):
+            return httpx.Response(200,json={'access_token':'private-access-token'})
+        return httpx.Response(200,json={'items':'invalid'})
+    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
+    result=client.post('/api/sandbox/check',headers={'Authorization':'Bearer test-admin'}).json()
+    assert result['authenticated']
+    assert not result['disputes_access']
+    assert result['stage']=='disputes'

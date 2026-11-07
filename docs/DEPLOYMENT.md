@@ -41,3 +41,17 @@ No live validation is claimed until these steps are performed with configured se
 ## Use Astropods credits
 
 Deploy the included outbound drafting worker using [docs/ASTROPODS.md](ASTROPODS.md). Render needs `AI_TRANSPORT=astropods_queue` and `DRAFTER_SHARED_TOKEN`; it does not need the Astropods gateway key or an agent endpoint. The normal Render Dockerfile remains the application build; `Dockerfile.drafter` is for Astropods only.
+
+
+## PayPal verification in the hosted application
+
+After Render deploys the latest commit, open **Connections**, enter the service's `ADMIN_TOKEN` (from Render Environment), and click **Test PayPal connection**. The check only authenticates and reads dispute summaries; it does not submit evidence or create a payment/dispute. Never paste the operator token or PayPal secret into an issue, recording, or chat.
+
+- Authentication fails: check sandbox client ID/secret and environment; the result includes a safe upstream status when available.
+- Authentication passes, Disputes fails with 403: enable Disputes in the sandbox app features and confirm access to the intended merchant account.
+- Both pass, no disputes returned: obtain/create an eligible sandbox dispute for this merchant; the check reads the first ten disputes created in the last 179 days, not an exhaustive account history.
+- Disputes are listed: select an ID to fill the import field, then import it. Inspect its actual evidence and available actions. Successful list/import does not establish submission eligibility.
+
+Report the authentication/Disputes results and any HTTP status to continue verification. Evidence submission remains a separate, explicitly approved step. This diagnostic endpoint is protected by both the operator token and the visitor session.
+
+Official references: [Disputes setup](https://developer.paypal.com/platforms/disputes/integrate-disputes/) and [List disputes](https://developer.paypal.com/api/customer-disputes/v1/disputes-list).

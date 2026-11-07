@@ -277,6 +277,10 @@ def create_app(settings=None):
     def complete_drafting_job(job_id:str, body:WorkerCompletion):
         return queue.complete(job_id, body.lease_token, body.result, body.error)
 
+    @app.post("/api/sandbox/check",dependencies=[Depends(admin)])
+    async def check_paypal(owner=Depends(visitor)):
+        return await paypal.check_connection()
+
     @app.post("/api/sandbox/import",dependencies=[Depends(admin)])
     async def import_case(body:ImportInput,owner=Depends(visitor),session=Depends(db)):
         if session.scalar(select(func.count()).select_from(Case).where(Case.owner==owner))>=30:

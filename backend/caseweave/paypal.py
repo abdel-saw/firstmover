@@ -1,11 +1,12 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import httpx
 
 BASE="https://api-m.sandbox.paypal.com"
 
 class PayPalError(Exception):
-    def __init__(self, message, uncertain=False):
+    def __init__(self, message, uncertain=False, http_status=None):
+        self.http_status=http_status
         self.message=message
         self.uncertain=uncertain
         super().__init__(message)
@@ -14,27 +15,62 @@ class PayPal:
     def __init__(self, settings):
         self.settings=settings
 
-    async def request(self, method, path, **kwargs):
+    async def access_token(self, client):
         if not self.settings.paypal_configured:
             raise PayPalError("PayPal sandbox credentials are not configured.")
+        try:
+            response=await client.post(BASE+"/v1/oauth2/token",auth=(self.settings.paypal_client_id,self.settings.paypal_client_secret),data={"grant_type":"client_credentials"})
+            if response.status_code!=200:
+                raise PayPalError("PayPal authentication failed. Check sandbox credentials and app permissions.",http_status=response.status_code)
+            token=response.json()["access_token"]
+            if not isinstance(token,str) or not token:
+                raise ValueError("Missing access token")
+            return token
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            raise PayPalError("Could not authenticate with PayPal sandbox.") from exc
+
+    async def resource(self, client, access, method, path, **kwargs):
+        try:
+            response=await client.request(method,BASE+path,headers={"Authorization":"Bearer "+access},**kwargs)
+        except httpx.HTTPError as exc:
+            raise PayPalError("PayPal did not return a conclusive response. Check the case in PayPal before retrying.",uncertain=method!="GET") from exc
+        if response.status_code>=400:
+            raise PayPalError(f"PayPal sandbox returned HTTP {response.status_code}. Check case status and app permissions.",uncertain=method!="GET" and response.status_code>=500,http_status=response.status_code)
+        try:
+            return response.json() if response.content else {}
+        except ValueError as exc:
+            raise PayPalError("PayPal returned an unreadable response.",uncertain=method!="GET") from exc
+
+    async def request(self, method, path, **kwargs):
+        async with httpx.AsyncClient(timeout=25, follow_redirects=False) as client:
+            access=await self.access_token(client)
+            return await self.resource(client, access, method, path, **kwargs)
+
+    async def check_connection(self):
+        # Operator-only diagnostics. No payments, disputes, or evidence are changed.
+        result={"environment":"sandbox","authenticated":False,"disputes_access":False,"disputes":[]}
         async with httpx.AsyncClient(timeout=25, follow_redirects=False) as client:
             try:
-                token=await client.post(BASE+"/v1/oauth2/token",auth=(self.settings.paypal_client_id,self.settings.paypal_client_secret),data={"grant_type":"client_credentials"})
-                if token.status_code!=200:
-                    raise PayPalError("PayPal authentication failed. Check sandbox credentials and app permissions.")
-                access=token.json()["access_token"]
-            except (httpx.HTTPError, KeyError, ValueError) as exc:
-                raise PayPalError("Could not authenticate with PayPal sandbox.") from exc
+                access=await self.access_token(client)
+            except PayPalError as exc:
+                return {**result,"stage":"authentication","http_status":exc.http_status,"message":exc.message}
+            result["authenticated"]=True
+            since=(datetime.now(timezone.utc)-timedelta(days=179)).strftime("%Y-%m-%dT%H:%M:%SZ")
             try:
-                response=await client.request(method,BASE+path,headers={"Authorization":"Bearer "+access},**kwargs)
-            except httpx.HTTPError as exc:
-                raise PayPalError("PayPal did not return a conclusive response. Check the case in PayPal before retrying.",uncertain=method!="GET") from exc
-            if response.status_code>=400:
-                raise PayPalError(f"PayPal sandbox returned HTTP {response.status_code}. Check case status and app permissions.",uncertain=method!="GET" and response.status_code>=500)
-            try:
-                return response.json() if response.content else {}
-            except ValueError as exc:
-                raise PayPalError("PayPal returned an unreadable response.",uncertain=method!="GET") from exc
+                raw=await self.resource(client,access,"GET","/v1/customer/disputes",params={"page_size":10,"create_time_after":since})
+            except PayPalError as exc:
+                message=("Authentication succeeded, but Disputes API access was denied. Enable Disputes for this sandbox app and verify its merchant account access."
+                         if exc.http_status==403 else "Authentication succeeded. "+exc.message)
+                return {**result,"stage":"disputes","http_status":exc.http_status,"message":message}
+            if (not isinstance(raw,dict) or not isinstance(raw.get("items"),list)
+                    or any(not isinstance(item,dict) or not isinstance(item.get("dispute_id"),str) for item in raw["items"])
+                    or not isinstance(raw.get("links",[]),list)):
+                return {**result,"stage":"disputes","http_status":200,"message":"Authentication succeeded, but PayPal returned an unexpected disputes list."}
+            # Return only IDs/status/reason, never access tokens or customer details.
+            disputes=[{key:item.get(key) for key in ("dispute_id","status","reason")} for item in raw["items"][:10]]
+            return {**result,"stage":"complete","disputes_access":True,"http_status":200,
+                    "disputes":disputes,"has_more":any(isinstance(link,dict) and link.get("rel")=="next" for link in raw.get("links",[])),
+                    "message":"Authentication and Disputes API access verified. Showing up to 10 disputes created in the last 179 days." if disputes else "Authentication and Disputes API access verified. No disputes were returned for the last 179 days. A sandbox dispute is needed to test import and submission."}
 
     async def dispute(self, dispute_id):
         return await self.request("GET",f"/v1/customer/disputes/{dispute_id}")
