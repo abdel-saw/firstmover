@@ -39,7 +39,7 @@ No AG Grid, Bryntum, Elastic, or other sponsor integration is claimed in this ve
 ## Links to fill in after verification
 
 - Repository: https://github.com/abdel-saw/caseweave
-- Hosted application: **pending deployment**
+- Hosted application: https://caseweave.onrender.com/ (sample workflow verified; model and sandbox connectivity still require validation)
 - Public YouTube demo: **pending recording/upload**
 
 ## Honest demonstration boundaries

@@ -6,7 +6,7 @@
 2. Review `render.yaml`: Docker web service, free plan, `/api/health`, generated `ADMIN_TOKEN`, secure cookie, SQLite. Confirm the plan is available to your account before creating the service.
 3. Deploy. The container builds React and serves it from FastAPI using Render's `PORT`.
 4. Add the PayPal **sandbox** client ID and secret under the service's Environment settings.
-5. Add `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` for your chosen provider. Check its JSON-object response support and quota before using the public demo. No inference credits are supplied by this repository.
+5. Add `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` for your chosen provider. Set `AI_JSON_MODE=prompt` for portable prompt-based JSON (recommended by the Astropods gateway docs), or retain `json_object` for a provider supporting that parameter. Check quota before using the public demo. No inference credits are supplied by this repository.
 6. Keep `COOKIE_SECURE=true`. Never prefix secrets with `VITE_` or put them in the public repository.
 7. Copy the generated `ADMIN_TOKEN` for operator-only use in Connections. Demo visitors should not need it.
 8. After deployment, verify `/api/health`, all three sample scenarios, model drafting, and at least one real sandbox API interaction.

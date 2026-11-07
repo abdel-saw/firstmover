@@ -250,3 +250,74 @@ def test_reimport_does_not_bypass_submission_lock(client,app,monkeypatch):
     another=imported(client,app,monkeypatch)
     prepared(client,another['id'])
     assert client.post('/api/cases/'+another['id']+'/sandbox-submit',headers=headers).status_code==409
+
+
+def test_astropods_native_environment(monkeypatch):
+    for key in ('AI_BASE_URL','AI_API_KEY','AI_MODEL','AI_JSON_MODE'):
+        monkeypatch.delenv(key,raising=False)
+    monkeypatch.setenv('ASTRO_GATEWAY_URL','https://gateway.example/')
+    monkeypatch.setenv('ASTRO_GATEWAY_API_KEY','native-test-secret')
+    monkeypatch.setenv('MODEL_DEFAULT','claude-haiku-4-5')
+    settings=Settings()
+    assert settings.ai_base_url=='https://gateway.example/v1'
+    assert settings.ai_api_key=='native-test-secret'
+    assert settings.ai_model=='claude-haiku-4-5'
+    assert settings.ai_json_mode=='prompt'
+    assert settings.ai_configured
+    monkeypatch.setenv('ASTRO_GATEWAY_URL','https://gateway.example/v1/')
+    assert Settings().ai_base_url=='https://gateway.example/v1'
+
+
+def test_explicit_ai_settings_override_astropods(monkeypatch):
+    monkeypatch.setenv('ASTRO_GATEWAY_URL','https://gateway.example')
+    monkeypatch.setenv('ASTRO_GATEWAY_API_KEY','native-secret')
+    monkeypatch.setenv('MODEL_DEFAULT','native-model')
+    monkeypatch.setenv('AI_BASE_URL','https://explicit.example/v1/')
+    monkeypatch.setenv('AI_API_KEY','explicit-secret')
+    monkeypatch.setenv('AI_MODEL','explicit-model')
+    monkeypatch.setenv('AI_JSON_MODE','json_object')
+    settings=Settings()
+    assert settings.ai_base_url=='https://explicit.example/v1'
+    assert settings.ai_api_key=='explicit-secret'
+    assert settings.ai_model=='explicit-model'
+    assert settings.ai_json_mode=='json_object'
+
+
+def test_portable_json_request_omits_response_format_and_caps_output(monkeypatch):
+    requests=[];actual=httpx.AsyncClient
+    def handler(req):
+        requests.append(json.loads(req.content))
+        payload={'draft':'The sample records a cancellation [E2].','claims':[{'text':'A sample cancellation record exists','sources':['E2']}]}
+        return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(payload)}}]})
+    monkeypatch.setattr('caseweave.analysis.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
+    result=asyncio.run(analyze(sample_cases()[0],Settings(ai_api_key='test',ai_model='claude-haiku-4-5',ai_json_mode='prompt',ai_max_tokens=1200)))
+    assert result['engine']=='ai'
+    assert 'response_format' not in requests[0]
+    assert requests[0]['max_tokens']==1200
+
+
+def test_json_object_request_preserved(monkeypatch):
+    requests=[];actual=httpx.AsyncClient
+    def handler(req):
+        requests.append(json.loads(req.content))
+        return httpx.Response(503)
+    monkeypatch.setattr('caseweave.analysis.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
+    asyncio.run(analyze(sample_cases()[0],Settings(ai_api_key='test',ai_model='test',ai_json_mode='json_object')))
+    assert requests[0]['response_format']=={'type':'json_object'}
+    assert len(requests)==1  # Fallback does not incur another inference request.
+
+
+@pytest.mark.parametrize('mode,tokens',[('unsupported',1800),('prompt',0),('prompt',10000)])
+def test_reject_invalid_ai_limits(mode,tokens):
+    with pytest.raises(ValueError):
+        Settings(ai_json_mode=mode,ai_max_tokens=tokens)
+
+
+def test_incomplete_native_gateway_does_not_send_key_to_default_provider(monkeypatch):
+    for key in ('AI_BASE_URL','AI_API_KEY','AI_MODEL','ASTRO_GATEWAY_URL'):
+        monkeypatch.delenv(key,raising=False)
+    monkeypatch.setenv('ASTRO_GATEWAY_API_KEY','native-only-secret')
+    monkeypatch.setenv('MODEL_DEFAULT','claude-haiku-4-5')
+    settings=Settings()
+    assert settings.ai_base_url==''
+    assert not settings.ai_configured

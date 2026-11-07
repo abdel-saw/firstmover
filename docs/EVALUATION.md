@@ -22,4 +22,8 @@ No business impact numbers, accuracy percentages, fraud detection capability, or
 
 ## Remaining validation
 
-Actual provider inference, real sandbox connectivity, sandbox evidence submission, PostgreSQL deployment, hosted browser interaction, and judge accessibility remain unverified until configured and exercised. The app clearly distinguishes unavailable AI from a real model response.
+Actual provider inference, real sandbox connectivity, sandbox evidence submission, PostgreSQL deployment/persistence and cross-browser judge accessibility remain unverified until configured and exercised. The app clearly distinguishes unavailable AI from a real model response.
+
+## Hosted sample check — November 7, 2026
+
+Browser verification exercised sample loading, deterministic checks, draft review, approval, simulated submission, and audit display at https://caseweave.onrender.com/. PayPal credentials were reported configured, not authenticated. AI was not configured. See [the verification screenshot and Astropods notes](ASTROPODS.md).

@@ -4,7 +4,7 @@
 
 CaseWeave organizes records into a timeline, identifies missing and conflicting evidence, prepares a reviewable response, and records an explicit approval before submission. PayPal or the financial institution remains responsible for adjudication.
 
-> **Current status:** runnable application with synthetic sample workflows, optional AI drafting, and a sandbox-only PayPal adapter. The adapter is tested with mocked HTTP responses; actual PayPal access and model inference must be configured and verified before submission to the hackathon. No hosted deployment or live integration is claimed in this repository.
+> **Current status:** runnable application with synthetic sample workflows, optional AI drafting, and a sandbox-only PayPal adapter. The adapter is tested with mocked HTTP responses; actual PayPal access and model inference must be configured and verified before submission to the hackathon. The app is hosted at https://caseweave.onrender.com/; the sample review workflow was browser-verified on November 7, 2026. Actual PayPal and model integration remain unverified.
 
 ## Try it locally
 
@@ -53,7 +53,9 @@ Set these in a local ignored `.env` file or your deployment's secret settings. N
 | `ADMIN_TOKEN` | Strong random bearer token guarding sandbox import and submission. No default access is enabled. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Merchant app's **sandbox** credentials. |
 | `AI_BASE_URL` | Trusted provider's OpenAI-compatible API base, including `/v1` where required. |
-| `AI_API_KEY`, `AI_MODEL` | Enable actual model drafting. Model must support `response_format: json_object`. |
+| `AI_API_KEY`, `AI_MODEL` | Enable actual model drafting. Use `AI_JSON_MODE=prompt` for portable JSON, or a model supporting `response_format: json_object`. |
+| `AI_JSON_MODE` | `prompt` or `json_object`; native Astropods variables default to prompt-based JSON. |
+| `AI_MAX_TOKENS` | Completion-token request cap; default 1800, range 256–4096. |
 | `COOKIE_SECURE` | Set `true` on HTTPS deployments; `false` only for local HTTP development. |
 | `MAX_SESSIONS` | Caps stored active visitor sessions; default 1000. |
 
@@ -66,6 +68,8 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
 The Connections dialog accepts this operator token in page memory only. It never asks for the PayPal client secret. Do not distribute the operator token to public demo visitors.
+
+See [Astropods setup and verified deployment status](docs/ASTROPODS.md) for native gateway variables, authentication boundaries, and the remaining Render-to-Astropods connection step.
 
 ## PayPal integration
 
