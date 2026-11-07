@@ -154,3 +154,8 @@ Wait for Render to deploy the same source revision before testing the worker. Re
 ## CPU use
 
 The worker reuses one Render HTTP client across polls, retaining its TLS context and HTTPS connection pool. Previously it rebuilt the client every two seconds, adding avoidable CPU work even when there were no cases. Polling now defaults to five seconds, with a 30-second health-check interval. These changes reduce idle overhead; no model runs inside the worker container. They do not establish the cause of a platform CPU-limit event or guarantee a particular resource allocation. Inspect CPU metrics and the exact event if limits persist after deployment. Polling may add up to about five seconds before a new job is claimed; avoid concurrent demo analyses on a small allocation.
+
+
+### Missing-evidence sample and citation failures
+
+On November 7, a fresh hosted Jordan Lee analysis returned `invalid_citations` in about 15 seconds. Missing evidence does not disable AI drafting. This code means the returned draft or claims failed source-ID validation; it does not reveal which exact citation form the model used. The prompt now enumerates permitted IDs, requires separate bracket citations and bare IDs in `claims.sources`, and separates missing-document observations from claims about supplied records. Validation stays strict and generation is not automatically retried. Redeploy the worker, reset sample cases to remove retained failed jobs, and test once. Local mocked-gateway coverage verifies Jordan's incomplete evidence can produce an AI draft while retaining both missing-document warnings; live generation after this prompt change still needs verification.

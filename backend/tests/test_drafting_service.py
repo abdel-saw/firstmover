@@ -324,3 +324,32 @@ def test_worker_reuses_client_across_idle_polls_and_closes_it(monkeypatch):
     assert len(clients)==1
     assert clients[0].is_closed
     assert worker.calls==0
+
+
+def test_missing_confirmation_can_receive_ai_draft(setup,monkeypatch):
+    app,client,_,settings=setup
+    case=next(x for x in client.get('/api/cases').json() if x['key']=='missing')
+    actual=httpx.AsyncClient
+    asgi=httpx.ASGITransport(app=app)
+    class Dispatch(httpx.AsyncBaseTransport):
+        async def handle_async_request(self,request):
+            if request.url.host=='caseweave.example':
+                return await asgi.handle_async_request(request)
+            payload=json.loads(request.content)
+            prompt=json.loads(payload['messages'][1]['content'])
+            assert prompt['allowed_source_ids']==['E1','E2']
+            assert len(prompt['missing'])==2
+            assert 'never use an empty sources list' in payload['messages'][0]['content']
+            data={'draft':'The customer reports a prior cancellation [E1]. A sample USD 79 renewal is recorded [E2]. No cancellation confirmation or agreement is supplied. Request both before responding.',
+                  'claims':[{'text':'The customer reports cancelling; completion is unconfirmed.','sources':['E1']},{'text':'A sample USD 79 renewal is recorded.','sources':['E2']}]}
+            return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(data)}}]})
+    monkeypatch.setattr('caseweave.drafting.httpx.AsyncClient',lambda **kw:actual(transport=Dispatch(),**kw))
+    async def scenario():
+        task=asyncio.create_task(analyze(case,settings,queue_runner=app.state.draft_queue.run))
+        await asyncio.sleep(0)
+        await DraftWorker(worker_settings()).run_once()
+        return await task
+    result=asyncio.run(scenario())
+    assert result['engine']=='ai'
+    assert len(result['missing'])==2
+    assert all(s in ['E1','E2'] for claim in result['claims'] for s in claim['sources'])

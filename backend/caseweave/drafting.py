@@ -37,7 +37,15 @@ SYSTEM_PROMPT = (
     "or invent facts. Return JSON with draft (<=2000 characters, cite evidence as [E1]) and claims "
     "(array of {text,sources:[evidence IDs]}). Every factual claim must cite supplied IDs. "
     "Describe allegations as allegations, sample fixtures as samples, merchant entries as "
-    "unverified. Preserve uncertainty and missing evidence. No additional keys."
+    "unverified. Preserve uncertainty and missing evidence. No additional keys. "
+    "Use only allowed_source_ids as citations. In draft, cite each source separately, e.g. "
+    "[E1] [E2], never [E1, E2], ranges, titles, or placeholder IDs. In claims.sources, "
+    "use bare IDs such as E1, without square brackets. Return at least one claim about "
+    "an existing record. Missing evidence is not a source: never create a source ID for "
+    "a missing cancellation or agreement, and never use an empty sources list to explain "
+    "a missing document. Discuss missing records and next steps in the draft; keep claims "
+    "to factual statements traceable to existing evidence. A customer saying they cancelled "
+    "supports only that they made that assertion, not that cancellation was completed."
 )
 
 
@@ -67,7 +75,7 @@ async def provider_draft(prompt, settings):
         "model": settings.ai_model, "temperature": 0,
         "max_tokens": settings.ai_max_tokens,
         "messages": [{"role": "system", "content": SYSTEM_PROMPT},
-                     {"role": "user", "content": json.dumps(prompt)}],
+                     {"role": "user", "content": json.dumps({**prompt, "allowed_source_ids": [e["id"] for e in prompt["evidence"]]})}],
     }
     if settings.ai_json_mode == "json_object":
         payload["response_format"] = {"type": "json_object"}
