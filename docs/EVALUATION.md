@@ -27,3 +27,7 @@ Actual provider inference, real sandbox connectivity, sandbox evidence submissio
 ## Hosted sample check — November 7, 2026
 
 Browser verification exercised sample loading, deterministic checks, draft review, approval, simulated submission, and audit display at https://caseweave.onrender.com/. PayPal credentials were reported configured, not authenticated. AI was not configured. See [the verification screenshot and Astropods notes](ASTROPODS.md).
+
+## Astropods worker validation
+
+The local suite now exercises queued application analysis end to end using the actual FastAPI handlers and worker. Gateway/model responses are mocked. It checks service authentication, one-time job claiming across concurrent workers, idempotent completion after a lost acknowledgment, stale/expired source snapshots, invalid model output, queue cleanup, and token separation. Docker build, CLI spec validation, deployment, and real inference remain unverified.

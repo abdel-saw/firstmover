@@ -30,6 +30,9 @@ class Settings:
     ai_model: str = field(default_factory=lambda: os.getenv("AI_MODEL") or os.getenv("MODEL_DEFAULT", ""))
     ai_json_mode: str = field(default_factory=json_mode)
     ai_max_tokens: int = field(default_factory=lambda: int(os.getenv("AI_MAX_TOKENS", "1800")))
+    ai_transport: str = field(default_factory=lambda: os.getenv("AI_TRANSPORT", "direct"))
+    drafter_shared_token: str = field(default_factory=lambda: os.getenv("DRAFTER_SHARED_TOKEN", ""))
+    drafter_wait_seconds: int = field(default_factory=lambda: int(os.getenv("DRAFTER_WAIT_SECONDS", "55")))
     cookie_secure: bool = field(default_factory=lambda: os.getenv("COOKIE_SECURE", "false").lower() == "true")
     max_sessions: int = field(default_factory=lambda: int(os.getenv("MAX_SESSIONS", "1000")))
 
@@ -38,10 +41,20 @@ class Settings:
             raise ValueError("AI_JSON_MODE must be prompt or json_object")
         if not 256 <= self.ai_max_tokens <= 4096:
             raise ValueError("AI_MAX_TOKENS must be between 256 and 4096")
+        if self.ai_transport not in ("direct", "astropods_queue"):
+            raise ValueError("AI_TRANSPORT must be direct or astropods_queue")
+        if self.ai_transport == "astropods_queue" and len(self.drafter_shared_token) < 32:
+            raise ValueError("DRAFTER_SHARED_TOKEN must contain at least 32 characters")
+        if not 5 <= self.drafter_wait_seconds <= 90:
+            raise ValueError("DRAFTER_WAIT_SECONDS must be between 5 and 90")
+
+    @property
+    def queue_drafter_configured(self):
+        return self.ai_transport == "astropods_queue" and len(self.drafter_shared_token) >= 32
 
     @property
     def ai_configured(self):
-        return bool(self.ai_base_url and self.ai_api_key and self.ai_model)
+        return self.queue_drafter_configured or bool(self.ai_base_url and self.ai_api_key and self.ai_model)
 
     @property
     def paypal_configured(self):

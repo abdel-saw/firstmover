@@ -4,11 +4,11 @@
 
 CaseWeave organizes records into a timeline, identifies missing and conflicting evidence, prepares a reviewable response, and records an explicit approval before submission. PayPal or the financial institution remains responsible for adjudication.
 
-> **Current status:** runnable application with synthetic sample workflows, optional AI drafting, and a sandbox-only PayPal adapter. The adapter is tested with mocked HTTP responses; actual PayPal access and model inference must be configured and verified before submission to the hackathon. The app is hosted at https://caseweave.onrender.com/; the sample review workflow was browser-verified on November 7, 2026. Actual PayPal and model integration remain unverified.
+> **Current status:** runnable application with synthetic sample workflows, optional AI drafting, an outbound Astropods drafting worker, and a sandbox-only PayPal adapter. The adapter is tested with mocked HTTP responses; actual PayPal access and model inference must be configured and verified before submission to the hackathon. The app is hosted at https://caseweave.onrender.com/; the sample review workflow was browser-verified on November 7, 2026. Actual PayPal and model integration remain unverified.
 
 ## Try it locally
 
-Requires Python 3.12+, Node.js 22+, and npm. No credentials are needed for sample workflows.
+Requires Python 3.12+, Node.js 22+, and npm. No credentials are needed for sample workflows. To use Astropods gateway credits with the hosted Render app, follow [the worker deployment guide](docs/ASTROPODS.md).
 
 ```bash
 python -m venv .venv
@@ -52,6 +52,9 @@ Set these in a local ignored `.env` file or your deployment's secret settings. N
 | `DATABASE_URL` | Defaults to SQLite for local/sample use. Supports `postgresql://` and Render's `postgres://` URLs via psycopg. |
 | `ADMIN_TOKEN` | Strong random bearer token guarding sandbox import and submission. No default access is enabled. |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Merchant app's **sandbox** credentials. |
+| `AI_TRANSPORT` | `direct` (default) or `astropods_queue`; the latter uses an outbound Astropods worker. |
+| `DRAFTER_SHARED_TOKEN` | At least 32 random characters; same private value in Render and the Astropods vault. |
+| `DRAFTER_WAIT_SECONDS` | Main app wait limit for queued generation, default 55 seconds. |
 | `AI_BASE_URL` | Trusted provider's OpenAI-compatible API base, including `/v1` where required. |
 | `AI_API_KEY`, `AI_MODEL` | Enable actual model drafting. Use `AI_JSON_MODE=prompt` for portable JSON, or a model supporting `response_format: json_object`. |
 | `AI_JSON_MODE` | `prompt` or `json_object`; native Astropods variables default to prompt-based JSON. |
@@ -69,7 +72,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 The Connections dialog accepts this operator token in page memory only. It never asks for the PayPal client secret. Do not distribute the operator token to public demo visitors.
 
-See [Astropods setup and verified deployment status](docs/ASTROPODS.md) for native gateway variables, authentication boundaries, and the remaining Render-to-Astropods connection step.
+See [Astropods setup and verified deployment status](docs/ASTROPODS.md) for the ready-to-publish worker package, secret setup, and deployment commands. The worker polls Render; no inbound Astropods API access is needed.
 
 ## PayPal integration
 
@@ -118,6 +121,7 @@ flowchart TD
 
 - React/Vite UI, Lucide icons, custom responsive CSS; no external fonts or visual assets.
 - FastAPI/Pydantic request validation; SQLAlchemy persistence.
+- Optional Astropods worker uses an authenticated Render job queue. Unique leases, source digests, idempotent completion, and completed-result reuse avoid automatic repeated inference. Gateway credentials stay in the worker.
 - Secure visitor cookie, scoped case reads/writes/exports, seven-day expiry and lazy cleanup.
 - Optimistic concurrency checks prevent an old analysis or edit from overwriting a newer case version.
 - AI model receives case evidence and rule findings with no action tools. Uploaded source instructions have no authority.
@@ -140,11 +144,11 @@ GitHub Actions runs both checks. Tests cover cross-session access, chronology, m
 - No dispute adjudication, fraud verdicts, fund release, KYC decisions, automatic refunds, or subscription cancellation.
 - No claim that an invoice, delivery record, or customer assertion proves authorization.
 - Text ingestion only, up to 6000 characters per source; no OCR or PDF parser.
-- No webhooks, scheduled synchronization, carrier connector, or automatic subscription-history retrieval in this version.
+- No payment webhooks, scheduled payment synchronization, carrier connector, or automatic subscription-history retrieval in this version.
 - Single operator sandbox integration; no production merchant OAuth onboarding.
 - Visitor sessions isolate demo data but do not replace production identity/access management. Do not upload real personal or financial data to a public demo.
 - The model receives submitted source text at the configured provider; use synthetic/redacted content for judging.
-- No production-scale abuse controls, immutable audit storage, migrations, or broad document authenticity verification. Current AI throttle is per case; public exposure should also use hosting-level rate limits and provider spending caps.
+- No production-scale abuse controls, immutable audit storage, migrations, or broad document authenticity verification. Direct-provider AI throttle is per case; the worker also has per-process rate and call limits. These counters are not a spending cap; public exposure should also use hosting-level rate limits and provider spending caps.
 
 ## Submission materials
 

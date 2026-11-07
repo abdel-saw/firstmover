@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, String, Text, Integer, UniqueConstraint
+from sqlalchemy import create_engine, Column, String, Text, Integer, Float, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
@@ -24,6 +24,20 @@ class Submission(Base):
     state = Column(String(32), nullable=False)
     result = Column(Text, nullable=False, default="{}")
     __table_args__ = (UniqueConstraint("case_id", "digest"),)
+
+
+class DraftJob(Base):
+    __tablename__ = "draft_jobs"
+    id = Column(String(64), primary_key=True)
+    case_id = Column(String(64), nullable=False, index=True)
+    input_digest = Column(String(64), nullable=False)
+    state = Column(String(20), nullable=False, default="pending")
+    expires = Column(Float, nullable=False)
+    payload = Column(Text, nullable=False)
+    lease_hash = Column(String(64), nullable=True)
+    result = Column(Text, nullable=False, default="{}")
+    error = Column(String(40), nullable=True)
+    __table_args__ = (UniqueConstraint("case_id", "input_digest"),)
 
 def database(url):
     if url.startswith("postgres://"):

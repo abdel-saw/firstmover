@@ -23,3 +23,7 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+      - name: Build isolated Astropods worker image
+        run: docker build -f Dockerfile.drafter -t caseweave-drafter-check .
+      - name: Check worker container imports without application database dependencies
+        run: docker run --rm --entrypoint python caseweave-drafter-check -c "from caseweave.drafter import app; assert app.title == 'CaseWeave Astropods worker'"

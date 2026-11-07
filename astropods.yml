@@ -1,0 +1,36 @@
+spec: blueprint/v1
+name: caseweave-drafter
+agent:
+  build:
+    context: .
+    dockerfile: Dockerfile.drafter
+  interfaces:
+    frontend: true
+    messaging: false
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1/health', timeout=5)"]
+  inputs:
+    - name: CASEWEAVE_URL
+      datatype: string
+      default: https://caseweave.onrender.com
+      description: Render application origin; the worker pulls authenticated jobs from it.
+    - name: DRAFTER_SHARED_TOKEN
+      datatype: string
+      secret: true
+      description: Private service token, at least 32 characters; also configured in Render.
+    - name: DRAFTER_MAX_CALLS
+      datatype: number
+      default: 100
+      description: Inference attempts per process; resets on restart, not a dollar spending limit.
+    - name: DRAFTER_REQUESTS_PER_MINUTE
+      datatype: number
+      default: 6
+      description: Maximum inference attempts per minute in this worker.
+    - name: AI_MAX_TOKENS
+      datatype: number
+      default: 1800
+      description: Requested completion-token cap; input tokens also incur charges.
+models:
+  default:
+    provider: gateway
+    models: [claude-haiku-4-5, claude-sonnet-4-6]

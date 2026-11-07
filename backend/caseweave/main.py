@@ -9,12 +9,13 @@ from typing import Literal
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from sqlalchemy import select, delete, update, func, or_
 from sqlalchemy.exc import IntegrityError
 
 from .config import Settings
-from .db import database, Visitor, Case, Submission
+from .db import database, Visitor, Case, Submission, DraftJob
+from .draft_queue import DraftQueue
 from .samples import sample_cases
 from .analysis import analyze, timestamp
 from .paypal import PayPal, PayPalError, normalize, can_submit
@@ -48,6 +49,19 @@ class DraftInput(BaseModel):
 class ApprovalInput(BaseModel):
     digest: str = Field(min_length=64,max_length=64)
 
+class WorkerCompletion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lease_token: str = Field(min_length=32, max_length=128)
+    result: dict | None = None
+    error: Literal["invalid_input", "gateway_failed"] | None = None
+
+    @model_validator(mode="after")
+    def one_outcome(self):
+        if (self.result is None) == (self.error is None):
+            raise ValueError("Provide exactly one result or error")
+        return self
+
+
 class ImportInput(BaseModel):
     dispute_id: str = Field(pattern=r"^PP-[A-Z0-9-]{3,60}$")
 
@@ -60,6 +74,8 @@ def create_app(settings=None):
     app.state.settings=settings
     paypal=PayPal(settings)
     app.state.paypal=paypal
+    queue=DraftQueue(factory,settings)
+    app.state.draft_queue=queue
 
     def db():
         with factory() as session:
@@ -77,6 +93,11 @@ def create_app(settings=None):
         supplied=request.headers.get("authorization","")
         if not settings.admin_token or not hmac.compare_digest(supplied,"Bearer "+settings.admin_token):
             raise HTTPException(403,"A server-configured admin token is required for sandbox access.")
+
+    def drafting_worker(request:Request):
+        supplied=request.headers.get("authorization", "")
+        if (not settings.queue_drafter_configured or not hmac.compare_digest(supplied, "Bearer " + settings.drafter_shared_token)):
+            raise HTTPException(403, "An authorized drafting worker is required.")
 
     def load(session,case_id,owner):
         row=session.get(Case,case_id)
@@ -125,7 +146,7 @@ def create_app(settings=None):
 
     @app.get("/api/config")
     def config():
-        return {"ai_configured":settings.ai_configured,"ai_model":settings.ai_model if settings.ai_configured else None,"paypal_configured":settings.paypal_configured,"paypal_environment":"sandbox","version":"0.1.0"}
+        return {"ai_configured":settings.ai_configured,"ai_model":("Astropods drafting worker" if settings.queue_drafter_configured else settings.ai_model) if settings.ai_configured else None,"ai_transport":"astropods_queue" if settings.queue_drafter_configured else "direct","paypal_configured":settings.paypal_configured,"paypal_environment":"sandbox","version":"0.1.0"}
 
     @app.post("/api/session")
     def start(request:Request,response:Response,session=Depends(db)):
@@ -135,6 +156,7 @@ def create_app(settings=None):
         cutoff=(datetime.now(timezone.utc)-timedelta(days=7)).isoformat()
         expired=select(Visitor.id).where(Visitor.created<cutoff)
         expired_cases=select(Case.id).where(Case.owner.in_(expired))
+        session.execute(delete(DraftJob).where(DraftJob.case_id.in_(expired_cases)))
         session.execute(delete(Submission).where(Submission.case_id.in_(expired_cases)))
         session.execute(delete(Case).where(Case.owner.in_(expired)))
         session.execute(delete(Visitor).where(Visitor.created<cutoff))
@@ -185,7 +207,7 @@ def create_app(settings=None):
         recent=[a for a in data.get("audit",[]) if a["action"]=="analyzed" and datetime.fromisoformat(a["at"])>datetime.now(timezone.utc)-timedelta(minutes=1)]
         if len(recent)>=3:
             raise HTTPException(429,"Please wait a minute before analyzing this case again.")
-        result=await analyze(data,settings)
+        result=await analyze(data,settings,queue_runner=queue.run)
         data.update(analysis=result,draft=result["draft"],status="Ready for review")
         data.pop("approved_digest",None)
         audit(data,"analyzed","AI-assisted draft" if result["engine"]=="ai" else "Deterministic evidence checks; no AI response")
@@ -236,6 +258,7 @@ def create_app(settings=None):
     def reset(owner=Depends(visitor),session=Depends(db)):
         for row in session.scalars(select(Case).where(Case.owner==owner)):
             if json.loads(row.data)["mode"]=="sample":
+                session.execute(delete(DraftJob).where(DraftJob.case_id==row.id))
                 session.delete(row)
         for data in sample_cases():
             data["id"]=secrets.token_hex(12)
@@ -243,6 +266,14 @@ def create_app(settings=None):
             session.add(Case(id=data["id"],owner=owner,data=json.dumps(data)))
         session.commit()
         return {"reset":True}
+
+    @app.post("/api/internal/drafting/claim", dependencies=[Depends(drafting_worker)])
+    def claim_drafting_job():
+        return queue.claim()
+
+    @app.post("/api/internal/drafting/jobs/{job_id}/complete", dependencies=[Depends(drafting_worker)])
+    def complete_drafting_job(job_id:str, body:WorkerCompletion):
+        return queue.complete(job_id, body.lease_token, body.result, body.error)
 
     @app.post("/api/sandbox/import",dependencies=[Depends(admin)])
     async def import_case(body:ImportInput,owner=Depends(visitor),session=Depends(db)):

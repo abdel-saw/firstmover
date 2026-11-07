@@ -30,6 +30,7 @@ Better organized evidence may reduce preparation time and repeated requests for 
 | Python / FastAPI / Pydantic | API, validation, chronology checks, and workflow controls. |
 | SQLAlchemy / SQLite or PostgreSQL | Session-scoped case persistence and submission state. |
 | React / Vite / Lucide | Merchant UI and original visual design. |
+| Astropods outbound worker | Claims authenticated Render jobs, uses the injected AI Gateway, and posts source-validated results. Deployment and actual inference still require account verification. |
 | Configured model provider | Source-linked drafting using an OpenAI-compatible chat-completion endpoint. **Replace this row with the actual provider/model and observed usage before submission.** |
 | Render | Intended Docker hosting. **Confirm deployment and URL before submission.** |
 | ChatGPT / Codex | Development assistance, implementation, and test authoring. |

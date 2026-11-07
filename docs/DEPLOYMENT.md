@@ -37,3 +37,7 @@ The portal may require account verification and sponsor approval. This project d
 - [ ] Hosted URL remains accessible through judging; verify provider quotas and availability.
 
 No live validation is claimed until these steps are performed with configured services.
+
+## Use Astropods credits
+
+Deploy the included outbound drafting worker using [docs/ASTROPODS.md](ASTROPODS.md). Render needs `AI_TRANSPORT=astropods_queue` and `DRAFTER_SHARED_TOKEN`; it does not need the Astropods gateway key or an agent endpoint. The normal Render Dockerfile remains the application build; `Dockerfile.drafter` is for Astropods only.
