@@ -1,135 +1,104 @@
-# CaseWeave
+# FirstMover
 
-**Evidence, connected.** A merchant workspace for preparing traceable responses to PayPal disputes, starting with cancellation-related recurring billing.
+**A reason to go first.** An experimental PayPal + AI coordination mechanism: participants authorize a conditional group purchase; if the group fills, the organizer captures the commitments. If the group misses its target, authorizations are voided and eligible early participants receive organizer-funded bonuses through PayPal Payouts.
 
-CaseWeave organizes records into a timeline, identifies missing and conflicting evidence, prepares a reviewable response, and records an explicit approval before submission. PayPal or the financial institution remains responsible for adjudication.
+Built for the PayPal AI Hackathon. The mechanism is inspired by **Alex Tabarrok's dominant assurance contracts**, not invented here. De Bono's provocation technique helped frame the question: *what if a purchase that never happens sometimes pays the buyer?*
 
-> **Current status:** hosted application with synthetic sample workflows, AI drafting through an Astropods worker, and a sandbox-only PayPal adapter. The user has confirmed AI drafts on all three sample cases. PayPal API authentication, real dispute import, and evidence acceptance still need live verification. The adapter and connection diagnostics are covered by mocked HTTP tests. Hosted demo: https://caseweave.onrender.com/.
+**Current verification:** demo settlement, API safety paths, and the AI worker transport are exercised locally. PayPal HTTP and model responses are mocked in those tests. FirstMover's actual Payouts, authorization, capture, void, and bonus flows have not yet been verified against our account. The earlier CaseWeave app verified authentication/Disputes read access and real AI drafting; those do not establish FirstMover's payment capabilities. No improved conversion rate or production readiness is claimed.
 
-## Try it locally
+Hosted application: https://caseweave.onrender.com/ (existing Render hostname retained). The prior project remains available at `/?app=caseweave`; its documentation is [CASEWEAVE.md](CASEWEAVE.md).
 
-Requires Python 3.12+, Node.js 22+, and npm. No credentials are needed for sample workflows. To use Astropods gateway credits with the hosted Render app, follow [the worker deployment guide](docs/ASTROPODS.md).
+## Why this is more than checkout
+
+A group can remain stuck because each person will participate only if others do. The organizer offers a small, capped failure bonus to early participants. PayPal's separate financial states implement the experiment: approve → authorize → capture **or** void → payout. An authorization is not a completed payment, and releasing a hold is not paying a bonus.
+
+This prototype is **not** a general escrow service, investment product, guaranteed funding mechanism, or segregated bonus reserve. The application coordinates ordinary PayPal APIs; PayPal does not enforce the campaign condition or provide cross-payment atomicity. Bonuses come from the organizer. Any production use requires PayPal policy and legal review.
+
+## Judge walkthrough
+
+No credentials are needed for local simulation:
+
+1. Open **Terms studio**. Edit the printmaking preset, or use **Draft terms with AI** if configured.
+2. Review the structured terms, maximum bonus liability, and execution mode. Select **Local simulation**, approve, and launch.
+3. Add three demo participants; click **Approve & fund group**. Inspect the simulated capture receipts.
+4. Launch another campaign and add one participant. Click **Advance deadline & settle**. The demo advances its own deadline, releases the simulated hold and pays a simulated early bonus.
+5. Inspect the audit trail and export the JSON record.
+
+Every simulated receipt is labeled `SIMULATED`. The deadline advance is available only in demo mode. Real sandbox payments cannot be fast-forwarded. A manual preset is never labeled AI-generated.
+
+## Run locally
+
+Python 3.12+ and Node.js 22+:
 
 ```bash
 python -m venv .venv
+# macOS/Linux:
 source .venv/bin/activate
+# Windows PowerShell instead:
+# .\.venv\Scripts\Activate.ps1
 pip install -r backend/requirements-dev.txt
 npm ci --prefix frontend
 npm run build --prefix frontend
-cp .env.example .env
-PYTHONPATH=backend uvicorn caseweave.main:app --env-file .env --reload
+python -m uvicorn caseweave.main:app --app-dir backend --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-Open **http://localhost:8000**. On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`, set `$env:PYTHONPATH="backend"`, and run `uvicorn caseweave.main:app --env-file .env --reload`.
-
-For frontend hot reload, run `npm run dev --prefix frontend` in another terminal and visit the printed Vite address; `/api` proxies to port 8000.
+First copy `.env.example` to `.env` and leave secrets empty for demo mode. Open http://127.0.0.1:8000/. Build the frontend again after UI edits. `COOKIE_SECURE=false` is for local HTTP; Render uses `true`.
 
 Or use Docker:
 
 ```bash
-docker build -t caseweave .
-docker run --rm -p 8000:8000 --env-file .env caseweave
+docker build -t firstmover .
+docker run --rm -p 8000:8000 --env-file .env firstmover
 ```
 
-## Judge walkthrough
+## PayPal sandbox verification
 
-1. Open the app. It creates an isolated seven-day browser session with three **synthetic** cases.
-2. Select **Renewal after confirmed cancellation**. Inspect the timeline and click a source label to read its record.
-3. Select **Run evidence checks**. If a model is configured, the button instead offers **Analyze with AI**.
-4. Inspect findings, missing evidence, and the editable response. Coverage measures record types present, not confidence or case strength.
-5. Review and approve the exact version; then select **Complete sample workflow**. The audit trail explicitly records a simulation, with no PayPal API call.
-6. Try **Cancellation claimed, confirmation missing**. Add a cancellation record through the Evidence tab (paste text or import a `.txt` file), rerun checks, and observe the changed findings.
-7. Export a JSON evidence package. Reset the sample cases with the inbox reset button.
+1. Keep the existing Render sandbox credentials and `ADMIN_TOKEN`. No production endpoint exists in the adapter.
+2. In **Sandbox setup**, enter the operator token. It remains in page memory; participants do not need it.
+3. Enter an actual **personal sandbox account email**, approve the USD 0.01 virtual-funds test, and click **Send / reconcile test payout**.
+4. Only an independently read `SUCCESS` for the correct recipient, amount, currency, batch and item unlocks sandbox campaign creation. Pending/unclaimed/failed results do not pass. Enable Payouts in the developer app if access is denied. After a definite pre-acceptance rejection, explicitly repeating the approved test starts a new attempt; pending or uncertain payouts only reconcile the original attempt.
+5. Create a **PayPal sandbox** campaign. For a short demo, use a one-minute decision window and the minimum group size of two. The organizer acknowledges the published bonus liability; fees are additional, and no reserve is segregated or guaranteed.
+6. Share the campaign link. Each participant approves the exact terms, uses a distinct personal sandbox PayPal account, and approves PayPal Checkout. The backend separately authorizes and verifies the hold. A display name or successful redirect is not a funded commitment.
+7. The organizer may settle a full group early. An unfilled sandbox group may be settled only after its real deadline. The organizer must initiate settlement; no background scheduler is promised.
+8. Inspect receipts and the sandbox account independently. A pending/unknown result stops the workflow. **Resume / reconcile** never re-dispatches an uncertain write. A definite rejected capture may be recovered after inspection. **Cancel & recover** refunds verified captures and voids remaining holds; technical recovery does not earn group-failure bonuses.
 
-Sample actions are never presented as actual PayPal submissions. Credentials configured on the server do not convert fixtures into real disputes.
+Sandbox MVP limits: one organizer merchant, USD, 2–6 participants, USD 1–20 per commitment, up to three early participants, USD 0.01–2 bonus each, 1–120 minute decision windows. A maximum of 12 checkout attempts and 12 campaigns per browser session limits demo use. Duplicate payer accounts are prevented per campaign; this does not prove unique real-world people or prevent coordinated bonus farming.
+
+### Persistence matters
+
+The default SQLite file is suitable for local experiments. Render's default filesystem is ephemeral: redeploys/restarts can erase campaigns and operation history while sandbox authorizations still exist externally. **Use a retained database (PostgreSQL or a persistent disk) before relying on saved sandbox workflows across deployments.** Duplicate-write protection depends on retained operation records. Never use this prototype with real money. If records are lost, inspect the merchant's sandbox account and resolve holds there; do not recreate a campaign as a recovery method.
+
+## AI: proposal, not permission
+
+The existing Astropods worker now handles campaign proposals in addition to archived evidence drafts. Redeploy it after pulling this version:
+
+```powershell
+git pull --ff-only
+ast blueprint push
+ast agent redeploy --name caseweave-drafter --var "DRAFTER_SHARED_TOKEN=@" --wait
+```
+
+Render must deploy the same revision. The existing `AI_TRANSPORT=astropods_queue` and shared service token stay in place. No managed gateway credential is copied to Render.
+
+The worker sends only the organizer's short brief to the configured model. A strict schema bounds the title, description, participant threshold, ticket amount, early cohort, bonus, duration, questions and explanation. The backend revalidates the output. A failed model response is displayed as an error; a manual preset remains available, labeled as such. AI cannot launch a campaign, approve terms, choose a payout recipient, or execute a payment. Code calculates target amounts and maximum bonus liability in integer cents.
+
+The per-process gateway limits remain six attempts/minute and 100 attempts/process by default. These are not a dollar cap; watch Astropods usage and set platform spending limits. See [Astropods deployment](docs/ASTROPODS.md).
 
 ## Configuration
 
-Set these in a local ignored `.env` file or your deployment's secret settings. Never place secrets in source code or frontend build variables.
-
-| Variable | Purpose |
+| Variable | Use |
 | --- | --- |
-| `DATABASE_URL` | Defaults to SQLite for local/sample use. Supports `postgresql://` and Render's `postgres://` URLs via psycopg. |
-| `ADMIN_TOKEN` | Strong random bearer token guarding sandbox import and submission. No default access is enabled. |
-| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Merchant app's **sandbox** credentials. |
-| `AI_TRANSPORT` | `direct` (default) or `astropods_queue`; the latter uses an outbound Astropods worker. |
-| `DRAFTER_SHARED_TOKEN` | At least 32 random characters; same private value in Render and the Astropods vault. |
-| `DRAFTER_WAIT_SECONDS` | Main app wait limit for queued generation, default 55 seconds. |
-| `AI_BASE_URL` | Trusted provider's OpenAI-compatible API base, including `/v1` where required. |
-| `AI_API_KEY`, `AI_MODEL` | Enable actual model drafting. Use `AI_JSON_MODE=prompt` for portable JSON, or a model supporting `response_format: json_object`. |
-| `AI_JSON_MODE` | `prompt` or `json_object`; native Astropods variables default to prompt-based JSON. |
-| `AI_MAX_TOKENS` | Completion-token request cap; default 1800, range 256–4096. |
-| `COOKIE_SECURE` | Set `true` on HTTPS deployments; `false` only for local HTTP development. |
-| `MAX_SESSIONS` | Caps stored active visitor sessions; default 1000. |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Organizer merchant's sandbox app. The JS SDK's client ID is public; the secret stays on the server. |
+| `ADMIN_TOKEN` | Operator-only sandbox campaign creation, payout probe and settlement. |
+| `DATABASE_URL` | SQLite locally or durable PostgreSQL. Existing `postgres://` Render URLs are supported. |
+| `COOKIE_SECURE` | `true` for HTTPS, `false` only for local HTTP. |
+| `AI_TRANSPORT` | `astropods_queue` to reuse the outbound worker, or `direct` for a server-side model provider. |
+| `DRAFTER_SHARED_TOKEN` | Shared private worker token, at least 32 characters. |
+| `DRAFTER_WAIT_SECONDS` | Proposal queue wait, default 55 seconds. |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Optional direct OpenAI-compatible model configuration. |
+| `AI_JSON_MODE`, `AI_MAX_TOKENS` | Prompt JSON or JSON mode; bounded completion tokens. |
 
-Without a model, the app identifies itself as **Evidence checks** and produces a deterministic draft. A failed or invalid model response falls back to those checks with a visible notice. No canned answer is labelled AI-generated. Citation validation checks source IDs, not whether each statement is semantically supported; human review remains necessary.
-
-Generate an admin token:
-
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
-
-The Connections dialog accepts this operator token in page memory only. It never asks for the PayPal client secret. Do not distribute the operator token to public demo visitors.
-
-See [Astropods setup and verified deployment status](docs/ASTROPODS.md) for the ready-to-publish worker package, secret setup, and deployment commands. The worker polls Render; no inbound Astropods API access is needed.
-
-## PayPal integration
-
-All calls are fixed to `https://api-m.sandbox.paypal.com`. There is no live-payment mode.
-
-1. Configure the merchant app and enable Disputes in its features.
-2. Set server-side sandbox credentials and `ADMIN_TOKEN`.
-3. In **Connections**, enter the operator `ADMIN_TOKEN` and select **Test PayPal connection**. This checks OAuth authentication and reads up to ten disputes created in the last 179 days. An empty successful list verifies read access, not import or submission. A 403 after successful authentication points to Disputes permissions/account access. Enable **Disputes** in the sandbox app feature options. No access token or PayPal client secret is returned to the browser.
-4. Obtain an actual dispute belonging to that merchant/app. Creating disputes via the sandbox creation API needs additional buyer-side permissions and an enabled `DISPUTE_CREATE` scope; simply creating an app does **not** establish that access. Use PayPal's documented sandbox setup or ask the hackathon PayPal team for an eligible test case.
-5. In Connections, enter the operator token and `PP-…` dispute ID, then import it.
-6. Import retrieves dispute facts only. It does not invent a payment, cancellation confirmation, subscription agreement, or delivery record. Add those separately as merchant-supplied text; they are marked unverified.
-7. Analyze, edit, review, and approve the exact draft version.
-8. Submit the approved note to the sandbox. CaseWeave refreshes dispute details and checks `WAITING_FOR_SELLER_RESPONSE`, the available `provide_evidence` action, and the requested evidence types. The first version supports **OTHER note evidence only**; it does not attach original files or send tracking/refund-specific evidence.
-
-API operations:
-
-- `POST /v1/oauth2/token`
-- `GET /v1/customer/disputes` (operator connection check)
-- `GET /v1/customer/disputes/{id}`
-- `POST /v1/customer/disputes/{id}/provide-evidence` using multipart `input`
-
-A successful submission means the API accepted evidence, **not** that the merchant won. Uncertain network results are locked against automatic retries and require checking the case in PayPal. The prototype permits one sandbox submission attempt per dispute ID across all sessions, including reimports. A failed or uncertain attempt requires operator investigation rather than an automatic retry.
-
-References: [PayPal Disputes integration](https://developer.paypal.com/platforms/disputes/integrate-disputes/) · [Sandbox guide](https://developer.paypal.com/sandbox-testing/overview/).
-
-## Deploy on Render
-
-This repository contains a Dockerfile and a `render.yaml` Blueprint. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full path and secret configuration.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/abdel-saw/caseweave)
-
-The Blueprint requests a free web service, uses ephemeral SQLite, and does not provision a paid database. SQLite data may disappear on a restart/redeploy; this is acceptable for disposable sample sessions, not persistent merchant cases. Configure persistent PostgreSQL before storing cases that must survive restarts. Confirm platform terms, capacity, and pricing in Render before deployment. Free-service cold starts and resource limits can affect judge access.
-
-Hackathon sponsor resource: [Render $50 credit claim portal](https://credits-portal-mmdm.onrender.com/claim/paypal-ai-hackathon), linked from the [official sponsor page](https://paypalaihackathon.devpost.com/details/render). Redemption is account-dependent and not required to develop locally.
-
-## Architecture
-
-```mermaid
-flowchart TD
-  UI[React merchant workspace] --> API[FastAPI application]
-  API --> DB[(SQLite or PostgreSQL)]
-  API --> CHECKS[Chronology and completeness rules]
-  CHECKS --> MODEL[Optional source-constrained model]
-  API --> REVIEW[Version-specific merchant approval]
-  REVIEW --> ADAPTER[Sandbox-only PayPal adapter]
-  ADAPTER --> PP[PayPal Disputes API]
-```
-
-- React/Vite UI, Lucide icons, custom responsive CSS; no external fonts or visual assets.
-- FastAPI/Pydantic request validation; SQLAlchemy persistence.
-- Optional Astropods worker uses an authenticated Render job queue. Unique leases, source digests, idempotent completion, and completed-result reuse avoid automatic repeated inference. Gateway credentials stay in the worker.
-- Secure visitor cookie, scoped case reads/writes/exports, seven-day expiry and lazy cleanup.
-- Optimistic concurrency checks prevent an old analysis or edit from overwriting a newer case version.
-- AI model receives case evidence and rule findings with no action tools. Uploaded source instructions have no authority.
-- Approval binds an evidence/draft digest. Edits invalidate approval.
-- Persisted submission state and a preflight case refresh protect against repeated or stale submissions.
-- Render Docker deployment serves the frontend and API from one origin.
+No extra environment variables are needed for FirstMover. Never use frontend build variables for PayPal secrets or operator tokens.
 
 ## Tests
 
@@ -138,27 +107,18 @@ python -m pytest -q
 npm run build --prefix frontend
 ```
 
-GitHub Actions runs both checks. Tests cover cross-session access, chronology, missing evidence, invalid timestamps, stale approvals, sample/sandbox separation, duplicate submission, uncertain responses, requested evidence guards, secrets exposure, model source validation, fallback behavior, and HTTP multipart construction. These are local/mocked tests, not proof of connectivity to PayPal or an inference provider.
+New route-level tests use the real HTTP adapter with only PayPal's network boundary mocked. They exercise both settlement branches, exact-term consent, session ownership, payout identity and pending status, duplicate payer accounts, deadlines, duplicate operation prevention, lost capture acknowledgments, incorrect amounts, and partial settlement recovery. A worker/queue/model round trip covers AI proposals with model HTTP mocked. Archived CaseWeave tests remain in the suite.
 
-## Scope and limitations
+These tests do not establish production security, economic effectiveness, real beneficiary receipt, or live PayPal account permissions.
 
-- First workflow: cancellation-related recurring billing. Other dispute reasons need specialist evidence checks.
-- No dispute adjudication, fraud verdicts, fund release, KYC decisions, automatic refunds, or subscription cancellation.
-- No claim that an invoice, delivery record, or customer assertion proves authorization.
-- Text ingestion only, up to 6000 characters per source; no OCR or PDF parser.
-- No payment webhooks, scheduled payment synchronization, carrier connector, or automatic subscription-history retrieval in this version.
-- Single operator sandbox integration; no production merchant OAuth onboarding.
-- Visitor sessions isolate demo data but do not replace production identity/access management. Do not upload real personal or financial data to a public demo.
-- The model receives submitted source text at the configured provider; use synthetic/redacted content for judging.
-- No production-scale abuse controls, immutable audit storage, migrations, or broad document authenticity verification. Direct-provider AI throttle is per case; the worker also has per-process rate and call limits. These counters are not a spending cap; public exposure should also use hosting-level rate limits and provider spending caps.
+## Tools and credits
 
-## Submission materials
+- **PayPal:** Orders v2 authorization checkout; Payments v2 authorization/capture/void/refund reads and writes; Payouts v1 participation bonuses. Sandbox only.
+- **Astropods:** hosted outbound worker and managed AI Gateway for structured campaign proposals.
+- **Render:** hosted application and API; retained database recommended.
+- **React, Vite, FastAPI, SQLAlchemy:** UI, API and durable operation state.
+- **OpenAI Codex:** implementation, debugging, tests and documentation; not represented as the runtime proposal model. The actual runtime model is displayed after generation.
+- **Alex Tabarrok:** [dominant assurance contracts](https://marginalrevolution.com/marginalrevolution/2005/05/assurance_contr.html). The economics and refund-bonus concept are prior work. We make no "first ever" claim; other implementations include EnsureDone.
+- **Edward de Bono:** provocation/movement informed ideation; no affiliation implied.
 
-- [Project description and tools disclosure](docs/SUBMISSION.md)
-- [Demo script under three minutes](docs/DEMO_SCRIPT.md)
-- [Evaluation plan and outstanding validation](docs/EVALUATION.md)
-- [Deployment and integration setup](docs/DEPLOYMENT.md)
-
-## License
-
-MIT. See [LICENSE](LICENSE). Original interface and sample records; Lucide icons are ISC-licensed through the dependency. CaseWeave is an independent hackathon prototype, not an official PayPal product.
+License: [MIT](LICENSE). Lucide icons retain their package's ISC license. FirstMover is an independent hackathon experiment, not an official PayPal product.

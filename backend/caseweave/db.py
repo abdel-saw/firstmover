@@ -47,3 +47,16 @@ def database(url):
     engine = create_engine(url, connect_args={"check_same_thread": False} if url.startswith("sqlite") else {})
     Base.metadata.create_all(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+class FirstMoverRecord(Base):
+    """Versioned experiment records; all money operations are reserved before dispatch."""
+    __tablename__ = "firstmover_records"
+    id = Column(String(80), primary_key=True)
+    kind = Column(String(24), nullable=False, index=True)
+    owner = Column(String(64), nullable=False, index=True)
+    parent = Column(String(80), nullable=True, index=True)
+    state = Column(String(32), nullable=False)
+    data = Column(Text, nullable=False, default="{}")
+    revision = Column(Integer, nullable=False, default=0)
+    unique_key = Column(String(180), nullable=True, unique=True)

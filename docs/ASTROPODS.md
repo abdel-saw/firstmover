@@ -159,3 +159,9 @@ The worker reuses one Render HTTP client across polls, retaining its TLS context
 ### Missing-evidence sample and citation failures
 
 On November 7, a fresh hosted Jordan Lee analysis returned `invalid_citations` in about 15 seconds. Missing evidence does not disable AI drafting. This code means the returned draft or claims failed source-ID validation; it does not reveal which exact citation form the model used. The prompt now enumerates permitted IDs, requires separate bracket citations and bare IDs in `claims.sources`, and separates missing-document observations from claims about supplied records. Validation stays strict and generation is not automatically retried. Redeploy the worker, reset sample cases to remove retained failed jobs, and test once. Local mocked-gateway coverage verifies Jordan's incomplete evidence can produce an AI draft while retaining both missing-document warnings; live generation after this prompt change still needs verification.
+
+## FirstMover upgrade (November 8)
+
+The same `caseweave-drafter` worker now supports typed `firstmover_plan` jobs as well as archived CaseWeave drafts. Pull, publish the updated blueprint, and redeploy the existing agent using the commands above. The worker image now includes `campaign_planner.py`. An older worker may reject campaign proposal inputs; a configured badge alone does not verify this upgrade.
+
+No new model credential or service token is needed. Open FirstMover → Terms studio → Draft terms with AI, and verify the returned model name and editable proposal. Existing per-process inference limits apply to both job kinds. No PayPal credential or participant payment data enters the campaign proposal prompt.

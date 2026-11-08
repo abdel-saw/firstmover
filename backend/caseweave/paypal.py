@@ -31,7 +31,7 @@ class PayPal:
 
     async def resource(self, client, access, method, path, **kwargs):
         try:
-            response=await client.request(method,BASE+path,headers={"Authorization":"Bearer "+access},**kwargs)
+            response=await client.request(method,BASE+path,headers={"Authorization":"Bearer "+access,**kwargs.pop("headers",{})},**kwargs)
         except httpx.HTTPError as exc:
             raise PayPalError("PayPal did not return a conclusive response. Check the case in PayPal before retrying.",uncertain=method!="GET") from exc
         if response.status_code>=400:

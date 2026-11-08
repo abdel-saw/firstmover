@@ -1,48 +1,34 @@
-# CaseWeave — submission draft
+# FirstMover — submission draft
 
-## Pitch
+## Tagline
 
-CaseWeave connects scattered merchant records into traceable dispute evidence. Starting with cancellation-related recurring billing, it compares event timestamps, exposes missing records, and prepares a response that a merchant can inspect and approve before submitting to PayPal.
+A reason to go first: AI helps define a conditional group purchase; PayPal captures a filled group or releases holds and pays organizer-funded early participation bonuses.
 
-## Problem
+## Description
 
-A cancellation request, completed cancellation, payment, and refund are different events. They often live in different records. An incomplete or contradictory response creates additional work for merchants and case reviewers.
+Some group purchases never happen because everyone waits for someone else to commit first. FirstMover explores a known economic mechanism, inspired by Alex Tabarrok's dominant assurance contracts: offer eligible early participants a small organizer-funded bonus if the group misses its target.
 
-## What it does
+An organizer describes a workshop. AI proposes bounded, editable terms and identifies assumptions and unanswered questions. The organizer reviews the exact price, threshold, deadline, early cohort and maximum bonus liability before launch. Participants separately accept those terms and approve PayPal Sandbox authorization checkout.
 
-- Presents source records on a chronological timeline.
-- Distinguishes customer assertions, merchant-supplied records, synthetic fixtures, and imported sandbox API facts.
-- Checks for missing cancellation confirmation, payment records, and agreement terms.
-- Uses an optional language model to prepare source-linked observations and an editable response.
-- Requires approval of the exact draft/evidence version.
-- Exports a case package and submits supported note evidence to eligible PayPal sandbox disputes.
-- Records actions and uncertain submission results in the audit trail.
+The organizer settles the result. A filled group requires verified captures. An unfilled group releases its holds before paying early bonuses through Payouts. Every operation is persisted before dispatch and independently read back. Unknown outcomes stay unresolved; recovery can refund verified captures and void remaining holds. The application does not claim atomic multi-payment settlement, segregated reserves, automatic legal enforcement or guaranteed demand improvement.
 
-## Value hypothesis
+The hosted demo also includes a clearly labeled local simulation, so judges can explore both outcomes without credentials. Actual sandbox mode requires the operator's successful USD 0.01 Payouts permission test; participants use distinct personal sandbox payer accounts.
 
-Better organized evidence may reduce preparation time and repeated requests for information. We evaluate completeness, citation accuracy, and workflow correctness. No reduction in actual PayPal support cost, fraud losses, or case resolution time has been established.
+## Tools
 
-## Tools disclosure
+PayPal Orders v2 and Payments v2 implement authorization, capture, void, refund and reads. PayPal Payouts implements participation bonuses. Astropods hosts the outbound worker and AI Gateway for structured campaign proposals. Render hosts the API/UI. React/Vite, FastAPI and SQLAlchemy provide the application. OpenAI Codex supported implementation, debugging, tests and documentation; the runtime model is shown after an actual proposal response.
 
-| Tool | Use |
-| --- | --- |
-| PayPal sandbox Disputes API | Authenticate, retrieve dispute details, and submit merchant-approved OTHER note evidence. |
-| Python / FastAPI / Pydantic | API, validation, chronology checks, and workflow controls. |
-| SQLAlchemy / SQLite or PostgreSQL | Session-scoped case persistence and submission state. |
-| React / Vite / Lucide | Merchant UI and original visual design. |
-| Astropods outbound worker | Claims authenticated Render jobs, uses the injected AI Gateway, and posts source-validated results. Deployment and actual inference still require account verification. |
-| Configured model provider | Source-linked drafting using an OpenAI-compatible chat-completion endpoint. **Replace this row with the actual provider/model and observed usage before submission.** |
-| Render | Intended Docker hosting. **Confirm deployment and URL before submission.** |
-| ChatGPT / Codex | Development assistance, implementation, and test authoring. |
+## Links
 
-No AG Grid, Bryntum, Elastic, or other sponsor integration is claimed in this version.
-
-## Links to fill in after verification
-
+- Hosted: https://caseweave.onrender.com/
 - Repository: https://github.com/abdel-saw/caseweave
-- Hosted application: https://caseweave.onrender.com/ (sample workflow verified; model and sandbox connectivity still require validation)
-- Public YouTube demo: **pending recording/upload**
+- License: MIT, at repository root.
+- Video: **not recorded yet**; must be public on YouTube and under three minutes.
 
-## Honest demonstration boundaries
+## Verification language to finish before submission
 
-Synthetic sample workflows are labelled; their submission receipts are simulations. Sandbox import and submission are separate operator-only operations. State clearly in the final entry which actual API interactions were verified and which model performed inference. Do not submit an AI claim based solely on rule-based fallback output.
+Update this section only after observing real results. At implementation time, local tests use mocked PayPal/model HTTP. Actual FirstMover payout, hold, capture, void, failure bonus and new AI-proposal generation remain to be verified. Do not describe the older CaseWeave OAuth/Disputes checks as proof of those capabilities. Keep any unverified branches explicitly labeled.
+
+## Credits and novelty
+
+Credit Tabarrok's existing mechanism and acknowledge implementations such as EnsureDone. The proposed contribution is an AI-assisted PayPal Sandbox realization with human-approved terms and inspectable operation state, not invention of refund bonuses. De Bono's provocation technique informed the exploration. No affiliation or "first ever" claim.

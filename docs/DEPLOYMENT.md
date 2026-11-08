@@ -1,3 +1,9 @@
+# FirstMover deployment update
+
+FirstMover is now the default application. Follow the current [README](../README.md) and [FirstMover verification plan](FIRSTMOVER.md). Pull/publish/redeploy the existing Astropods worker once for campaign proposal jobs. Render deploys this repository as before. No new credentials are required; actual Payouts permission must be verified in Sandbox setup. Retain the database across deployments before relying on saved sandbox operation records.
+
+The following section records the earlier CaseWeave deployment instructions and remains relevant only to the archived app at `/?app=caseweave`.
+
 # Deployment and secrets
 
 ## Render setup

@@ -19,6 +19,8 @@ from .db import database, Visitor, Case, Submission, DraftJob
 from .draft_queue import DraftQueue
 from .drafting import DraftErrorCode
 from .samples import sample_cases
+from .firstmover import install_firstmover
+from .db import FirstMoverRecord
 from .analysis import analyze, timestamp
 from .paypal import PayPal, PayPalError, normalize, can_submit
 
@@ -71,7 +73,7 @@ class ImportInput(BaseModel):
 def create_app(settings=None):
     settings=settings or Settings()
     factory=database(settings.database_url)
-    app=FastAPI(title="CaseWeave",version="0.1.0")
+    app=FastAPI(title="FirstMover · CaseWeave archive",version="0.2.0")
     app.state.factory=factory
     app.state.settings=settings
     paypal=PayPal(settings)
@@ -269,12 +271,19 @@ def create_app(settings=None):
         session.commit()
         return {"reset":True}
 
+    campaign_ai=install_firstmover(app,factory,settings,paypal,visitor,admin)
+
     @app.post("/api/internal/drafting/claim", dependencies=[Depends(drafting_worker)])
     def claim_drafting_job():
-        return queue.claim()
+        result=queue.claim()
+        return result if result["job"] else campaign_ai.claim()
 
     @app.post("/api/internal/drafting/jobs/{job_id}/complete", dependencies=[Depends(drafting_worker)])
     def complete_drafting_job(job_id:str, body:WorkerCompletion):
+        with factory() as lookup:
+            proposal=lookup.get(FirstMoverRecord,job_id)
+        if proposal and proposal.kind=="plan":
+            return campaign_ai.complete(job_id,body.lease_token,body.result,body.error)
         return queue.complete(job_id, body.lease_token, body.result, body.error)
 
     @app.post("/api/sandbox/check",dependencies=[Depends(admin)])

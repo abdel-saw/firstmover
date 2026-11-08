@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationError
 
+from .campaign_planner import propose_campaign
 from .analysis import check_case
 from .config import Settings
 from .drafting import provider_draft, DraftFailure
@@ -143,6 +144,27 @@ class DraftWorker:
         if (not isinstance(job, dict) or not re.fullmatch(r"[a-f0-9]{32}", str(job.get("id", "")))
                 or not isinstance(job.get("lease_token"), str) or not 32 <= len(job["lease_token"]) <= 128):
             raise ValueError("Invalid leased job")
+        if job.get("kind")=="firstmover_plan":
+            brief=job.get("payload",{}).get("brief")
+            if not isinstance(brief,str) or not 15<=len(brief)<=4000:
+                await self.complete(client,job,error="invalid_input")
+                return True
+            self.timestamps.append(time.monotonic())
+            self.calls+=1
+            self.last_stage="gateway"
+            try:
+                result=await propose_campaign(brief,self.settings.ai)
+            except DraftFailure as exc:
+                self.last_error=exc.code
+                log.warning("Campaign proposal failure: %s; HTTP status: %s",exc.code,exc.http_status or "none")
+                self.last_stage="completion"
+                await self.complete(client,job,error=exc.code)
+                return True
+            self.last_stage="completion"
+            await self.complete(client,job,result=result)
+            self.last_stage="completed"
+            self.last_error=None
+            return True
         try:
             body = DraftRequest.model_validate(job["payload"])
         except (ValidationError, KeyError, TypeError):
