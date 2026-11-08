@@ -53,6 +53,7 @@ class Join(BaseModel):
     terms_digest: str=Field(min_length=64,max_length=64)
     accepted: bool
 class Brief(BaseModel):
+    retry: bool=False
     brief: str=Field(min_length=15,max_length=4000)
 class Probe(BaseModel):
     recipient: str=Field(pattern=r'^[^\s@]{1,80}@[^\s@]{1,100}\.[^\s@]{2,30}$')
@@ -218,7 +219,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
 
     @app.post('/api/firstmover/plan')
     async def plan(body:Brief,owner=Depends(visitor)):
-        return await ai.run(owner,body.brief)
+        return await ai.run(owner,body.brief,body.retry)
 
     @app.get('/api/firstmover/campaigns')
     def listing(owner=Depends(visitor)):

@@ -15,19 +15,27 @@ from .drafting import DraftFailure
 class CampaignAI:
     def __init__(self,factory,settings):self.factory,self.settings=factory,settings
 
-    async def run(self,owner,brief):
-        key='plan:'+owner+':'+hashlib.sha256(brief.encode()).hexdigest()
+    async def run(self,owner,brief,retry=False):
+        key='plan-v1:'+owner+':'+hashlib.sha256(brief.encode()).hexdigest()
         with self.factory() as db:
             job=db.scalar(select(Record).where(Record.unique_key==key))
             if job is None:
                 recent=db.scalar(select(func.count()).select_from(Record).where(Record.kind=='plan',Record.owner==owner))
                 if recent>=10:raise HTTPException(429,'AI proposal limit reached for this session.')
                 job=Record(id=secrets.token_hex(16),kind='plan',owner=owner,state='pending',unique_key=key,
-                           data=json.dumps({'brief':brief,'expires':time.time()+self.settings.drafter_wait_seconds}))
+                           data=json.dumps({'brief':brief,'attempts':1,'expires':time.time()+self.settings.drafter_wait_seconds}))
                 db.add(job)
                 try:db.commit()
                 except IntegrityError:
                     db.rollback();job=db.scalar(select(Record).where(Record.unique_key==key))
+            current=json.loads(job.data)
+            if retry and (job.state=='failed' or job.state in ('pending','leased') and current['expires']<=time.time()):
+                attempts=current.get('attempts',1)
+                if attempts>=3:raise HTTPException(429,'Three proposal attempts used for this brief. Edit it or use the manual preset.')
+                replacement={'brief':brief,'attempts':attempts+1,'expires':time.time()+self.settings.drafter_wait_seconds}
+                changed=db.execute(update(Record).where(Record.id==job.id,Record.state==job.state,Record.data==job.data).values(state='pending',data=json.dumps(replacement)))
+                if not changed.rowcount:raise HTTPException(409,'A proposal attempt is already being updated.')
+                db.commit()
             job_id=job.id
         if not self.settings.queue_drafter_configured:
             if not self.settings.ai_configured:raise HTTPException(503,'AI is not configured. You can edit a preset manually.')

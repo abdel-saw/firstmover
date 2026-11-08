@@ -335,3 +335,21 @@ def test_completed_bonus_cannot_be_downgraded_by_participant_reconciliation(setu
     result=post(c,'/pledges/'+pid+'/reconcile')
     assert result.status_code==200
     assert result.json()['pledges'][0]['state']=='bonus_paid'
+
+
+def test_failed_ai_proposal_can_be_explicitly_retried_without_accepting_stale_completion(tmp_path):
+    from fastapi import HTTPException
+    settings=Settings(database_url=f'sqlite:///{tmp_path/"retry.db"}',ai_transport='astropods_queue',drafter_shared_token='x'*40)
+    app=create_app(settings);ai=app.state.campaign_ai
+    brief='A short printmaking workshop for three sandbox participants.'
+    proposal={**TERMS,'questions':[],'rationale':'An illustrative proposal requiring organizer review, with capped bonus liability.'}
+    async def scenario():
+        task=asyncio.create_task(ai.run('owner',brief));await asyncio.sleep(0)
+        first=ai.claim()['job'];ai.complete(first['id'],first['lease_token'],error='gateway_failed')
+        with pytest.raises(HTTPException):await task
+        task=asyncio.create_task(ai.run('owner',brief,retry=True));await asyncio.sleep(0)
+        second=ai.claim()['job'];assert second['lease_token']!=first['lease_token']
+        with pytest.raises(HTTPException):ai.complete(first['id'],first['lease_token'],error='gateway_failed')
+        ai.complete(second['id'],second['lease_token'],result={'proposal':proposal,'model':'test-model'})
+        result=await task;assert result['proposal']==proposal
+    asyncio.run(scenario())

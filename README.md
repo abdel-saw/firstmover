@@ -80,7 +80,7 @@ ast agent redeploy --name caseweave-drafter --var "DRAFTER_SHARED_TOKEN=@" --wai
 
 Render must deploy the same revision. The existing `AI_TRANSPORT=astropods_queue` and shared service token stay in place. No managed gateway credential is copied to Render.
 
-The worker sends only the organizer's short brief to the configured model. A strict schema bounds the title, description, participant threshold, ticket amount, early cohort, bonus, duration, questions and explanation. The backend revalidates the output. A failed model response is displayed as an error; a manual preset remains available, labeled as such. AI cannot launch a campaign, approve terms, choose a payout recipient, or execute a payment. Code calculates target amounts and maximum bonus liability in integer cents.
+The worker sends only the organizer's short brief to the configured model. A strict schema bounds the title, description, participant threshold, ticket amount, early cohort, bonus, duration, questions and explanation. The backend revalidates the output. A failed model response is displayed as an error; a manual preset remains available, labeled as such. Failed/expired proposals can be explicitly retried after a configuration fix, up to three attempts per unchanged brief. Completed proposals are cached. No generation is automatically retried. AI cannot launch a campaign, approve terms, choose a payout recipient, or execute a payment. Code calculates target amounts and maximum bonus liability in integer cents.
 
 The per-process gateway limits remain six attempts/minute and 100 attempts/process by default. These are not a dollar cap; watch Astropods usage and set platform spending limits. See [Astropods deployment](docs/ASTROPODS.md).
 
