@@ -8,11 +8,11 @@ A reason to go first: AI helps define a conditional group purchase; PayPal captu
 
 Some group purchases never happen because everyone waits for someone else to commit first. FirstMover explores a known economic mechanism, inspired by Alex Tabarrok's dominant assurance contracts: offer eligible early participants a small organizer-funded bonus if the group misses its target.
 
-An organizer describes a workshop. AI proposes bounded, editable terms and identifies assumptions and unanswered questions. The organizer reviews the exact price, threshold, deadline, early cohort and maximum bonus liability before launch. Participants separately accept those terms and approve PayPal Sandbox authorization checkout.
+A merchant creates a private workspace, connects their PayPal Sandbox app from the dashboard and describes a group offer. AI proposes bounded, editable terms and identifies assumptions and unanswered questions. The organizer reviews the exact price, threshold, deadline, early cohort and maximum bonus liability before launch. Participants separately accept those terms and approve PayPal Sandbox authorization checkout.
 
 The organizer settles the result. A filled group requires verified captures. An unfilled group releases its holds before paying early bonuses through Payouts. Every operation is persisted before dispatch and independently read back. Unknown outcomes stay unresolved; recovery can refund verified captures and void remaining holds. The application does not claim atomic multi-payment settlement, segregated reserves, automatic legal enforcement or guaranteed demand improvement.
 
-The repository includes setup instructions for judges to explore both outcomes in local simulation. The public hosted campaign pages provide participant checkout for open sandbox campaigns. Actual sandbox mode requires the operator's successful USD 0.01 Payouts permission test; participants use distinct personal sandbox payer accounts.
+The repository includes setup instructions for judges to explore both outcomes in local simulation. The public hosted campaign pages provide participant checkout for open sandbox campaigns. Sandbox offers with early bonuses require a successful USD 0.01 Payouts permission test in that merchant’s workspace; participants use distinct personal sandbox payer accounts.
 
 ## Tools
 

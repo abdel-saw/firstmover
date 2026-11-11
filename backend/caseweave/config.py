@@ -24,6 +24,7 @@ class Settings:
     database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./caseweave.db"))
     admin_token: str = field(default_factory=lambda: os.getenv("ADMIN_TOKEN", ""))
     organizer_password: str = field(default_factory=lambda: os.getenv("ORGANIZER_PASSWORD", ""))
+    merchant_encryption_key: str = field(default_factory=lambda: os.getenv("MERCHANT_ENCRYPTION_KEY", ""), repr=False)
     paypal_client_id: str = field(default_factory=lambda: os.getenv("PAYPAL_CLIENT_ID", ""))
     paypal_client_secret: str = field(default_factory=lambda: os.getenv("PAYPAL_CLIENT_SECRET", ""))
     ai_base_url: str = field(default_factory=ai_url)

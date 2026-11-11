@@ -16,7 +16,8 @@ from sqlalchemy.exc import IntegrityError
 from .db import FirstMoverRecord as Record
 from .paypal import PayPalError
 from .firstmover_ai import CampaignAI
-from .organizer import WORKSPACE, install_organizer_login
+from .organizer import MERCHANT_PREFIX, WORKSPACE, install_organizer_login
+from .merchant_paypal import Connection, MerchantPayPal
 
 
 def amount(cents): return f'{cents/100:.2f}'
@@ -37,11 +38,12 @@ class Terms(BaseModel):
     description: str=Field(min_length=10,max_length=600)
     threshold: int=Field(ge=2,le=6)
     price_cents: int=Field(ge=100,le=2000)
-    early_slots: int=Field(ge=1,le=3)
-    bonus_cents: int=Field(ge=1,le=200)
+    early_slots: int=Field(ge=0,le=3)
+    bonus_cents: int=Field(ge=0,le=200)
     duration_minutes: int=Field(ge=1,le=120)
     @model_validator(mode='after')
     def early(self):
+        if bool(self.early_slots) != bool(self.bonus_cents):raise ValueError('Set both early places and a bonus, or set both to zero.')
         if self.early_slots>self.threshold:raise ValueError('Early places cannot exceed the group size.')
         return self
 
@@ -65,6 +67,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
     ai=CampaignAI(factory,settings)
     app.state.campaign_ai=ai
     signed_in = install_organizer_login(app, factory, settings)
+    accounts = MerchantPayPal(factory, settings, paypal)
 
     def get(key,kind=None):
         with factory() as db:
@@ -87,17 +90,19 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
     def children(cid,kind='pledge'):
         with factory() as db:return db.scalars(select(Record).where(Record.parent==cid,Record.kind==kind).order_by(Record.id)).all()
     def organizer(request: Request, owner=Depends(find_visitor)):
-        if signed_in(request):
-            return WORKSPACE
+        identity = signed_in(request)
+        if identity:
+            return identity
         require_organizer(request)
         if owner is None:
             raise HTTPException(401, "Start a session first.")
         return owner
 
     def owner_action(row, owner, request):
-        if row.owner == owner and signed_in(request):
+        identity = signed_in(request)
+        if identity == row.owner or (identity == WORKSPACE and row.owner == owner):
             return
-        if row.owner != owner:
+        if row.owner != owner or row.owner.startswith(MERCHANT_PREFIX):
             raise HTTPException(404, 'Record not found.')
         require_organizer(request)
 
@@ -107,7 +112,8 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
         admin(request)
 
     def viewer(row, request, visitor_id):
-        if signed_in(request) and row.owner in (WORKSPACE, visitor_id):
+        identity = signed_in(request)
+        if identity == row.owner or (identity == WORKSPACE and row.owner == visitor_id):
             return row.owner
         return visitor_id
 
@@ -154,7 +160,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
         if old and new and old!=new:raise HTTPException(502,'PayPal payer identities disagree.')
         return old or new
 
-    async def check_order(p,terms):
+    async def check_order(paypal,p,terms):
         raw=await paypal.request('GET','/v2/checkout/orders/'+p['order_id'])
         unit(raw,p,terms);return raw
 
@@ -192,6 +198,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             raise HTTPException(502,d['message'])
 
     async def payout(key,owner,parent,recipient,recipient_type,value,label,sim=False):
+        paypal = None if sim else accounts.for_campaign(owner)
         async def call(oid):
             return await paypal.request('POST','/v1/payments/payouts',headers={'PayPal-Request-Id':oid},json={
                 'sender_batch_header':{'sender_batch_id':oid,'email_subject':'FirstMover sandbox participation bonus'},
@@ -212,23 +219,53 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
                     'message':'Recipient success verified with PayPal.' if status=='SUCCESS' else 'Payout not confirmed successful. Status: '+status}
         return await once(key,owner,parent,label,call,read,sim)
 
-    def probe_ok():
+    def probe_id(owner):
+        return 'fm-probe:'+owner if owner.startswith(MERCHANT_PREFIX) else 'fm-payout-probe'
+
+    def probe_ok(owner):
         with factory() as db:
-            row=db.get(Record,'fm-payout-probe')
+            row=db.get(Record,probe_id(owner))
             return bool(row and row.state=='completed')
 
     @app.get('/api/firstmover/config')
     def config():
-        return {'paypal_configured':settings.paypal_configured,'paypal_client_id':settings.paypal_client_id if settings.paypal_configured else '',
-                'ai_configured':settings.ai_configured,'payout_verified':probe_ok(),'environment':'sandbox'}
+        return {'ai_configured':settings.ai_configured, 'environment':'sandbox',
+                'payout_verified':probe_ok(WORKSPACE)}
+
+    @app.get('/api/firstmover/organizer/config')
+    def organizer_config(owner=Depends(organizer)):
+        client_id = accounts.client_id(owner)
+        merchant = get(owner, 'merchant') if owner.startswith(MERCHANT_PREFIX) else None
+        return {'paypal_configured':bool(client_id), 'paypal_client_id':client_id,
+                'merchant_paypal_setup':bool(merchant and accounts.cipher),
+                'store_name':data(merchant)['name'] if merchant else '',
+                'ai_configured':settings.ai_configured, 'payout_verified':probe_ok(owner),
+                'environment':'sandbox'}
+
+    @app.put('/api/firstmover/organizer/paypal')
+    async def connect_paypal(body:Connection,owner=Depends(organizer)):
+        if not owner.startswith(MERCHANT_PREFIX):
+            raise HTTPException(403, 'Sign in with a merchant account to connect PayPal.')
+        existing = accounts.connection(owner)
+        if existing and data(existing)['client_id'] != body.client_id:
+            raise HTTPException(409, 'This workspace is linked to an existing PayPal app. Use the same client ID to update its secret.')
+        sealed = await accounts.verify(owner, body)
+        if existing:
+            save(existing, sealed)
+        else:
+            add(Record(id='fm-paypal:'+owner, kind='paypal_connection', owner=owner,
+                       state='verified', data=json.dumps(sealed)))
+        return {'paypal_configured':True, 'paypal_client_id':body.client_id}
 
     @app.post('/api/firstmover/payout-check')
     async def probe(body:Probe,owner=Depends(organizer)):
         if not body.approved:raise HTTPException(422,'Approve the USD 0.01 sandbox test payout.')
-        with factory() as db:row=db.get(Record,'fm-payout-probe')
+        if not accounts.client_id(owner):raise HTTPException(409,'Connect your PayPal Sandbox app first.')
+        record_id = probe_id(owner)
+        with factory() as db:row=db.get(Record,record_id)
         pd=data(row) if row else {'recipient':body.recipient,'attempt':0}
-        previous_key='payout-probe-v1:'+str(pd.get('attempt',0))
-        previous_id='fmop-'+hashlib.sha256(previous_key.encode()).hexdigest()[:40]
+        prefix = 'payout-probe-v2:'+owner+':' if owner.startswith(MERCHANT_PREFIX) else 'payout-probe-v1:'
+        previous_id='fmop-'+hashlib.sha256((prefix+str(pd.get('attempt',0))).encode()).hexdigest()[:40]
         with factory() as db:previous=db.get(Record,previous_id)
         rejected=previous and previous.state=='failed'
         if pd['recipient'].lower()!=body.recipient.lower() and not rejected:
@@ -237,10 +274,10 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             pd.update(recipient=body.recipient,attempt=pd.get('attempt',0)+1)
             row=save(row,pd)
         elif not row:
-            row=add(Record(id='fm-payout-probe',kind='probe',owner=owner,state='pending',data=json.dumps(pd)))
-        result=await payout('payout-probe-v1:'+str(pd.get('attempt',0)),owner,'fm-payout-probe',body.recipient,'EMAIL',1,'USD 0.01 sandbox permission test')
+            row=add(Record(id=record_id,kind='probe',owner=owner,state='pending',data=json.dumps(pd)))
+        result=await payout(prefix+str(pd.get('attempt',0)),owner,record_id,body.recipient,'EMAIL',1,'USD 0.01 sandbox permission test')
         if result.get('verified') or result.get('status')=='SUCCESS':save(get(row.id),pd,'completed')
-        return {'verified':probe_ok(),'status':result.get('status'),'message':result.get('message'),'payout_batch_id':result.get('provider_id')}
+        return {'verified':probe_ok(owner),'status':result.get('status'),'message':result.get('message'),'payout_batch_id':result.get('provider_id')}
 
     @app.post('/api/firstmover/plan')
     async def plan(body:Brief,owner=Depends(organizer)):
@@ -248,20 +285,25 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
 
     @app.get('/api/firstmover/campaigns')
     def listing(owner=Depends(organizer), browser_owner=Depends(find_visitor)):
-        with factory() as db:rows=db.scalars(select(Record).where(Record.kind=='campaign',Record.owner.in_((owner,browser_owner))).order_by(Record.id)).all()
+        owners = (owner, browser_owner) if owner == WORKSPACE else (owner,)
+        with factory() as db:rows=db.scalars(select(Record).where(Record.kind=='campaign',Record.owner.in_(owners)).order_by(Record.id)).all()
         return [summary(row,row.owner,manage=True) for row in rows]
 
     @app.post('/api/firstmover/campaigns')
     def launch(body:Launch,owner=Depends(organizer)):
         if not body.approved:raise HTTPException(422,'Review and approve the campaign terms.')
         if body.mode=='sandbox':
-            if not settings.paypal_configured or not probe_ok():raise HTTPException(409,'Verify a successful sandbox Payouts test first.')
+            if not accounts.client_id(owner):raise HTTPException(409,'Connect your PayPal Sandbox app first.')
+            if body.terms.bonus_cents and not probe_ok(owner):raise HTTPException(409,'Verify a successful sandbox Payouts test first.')
         with factory() as db:
-            count=db.scalar(select(func.count()).select_from(Record).where(Record.kind=='campaign',Record.owner==owner))
-            if count>=12:raise HTTPException(429,'Campaign limit reached for this session.')
+            count=db.scalar(select(func.count()).select_from(Record).where(Record.kind=='campaign',Record.owner==owner,
+                Record.state.not_in(('funded','released','recovered'))))
+            if count>=12:raise HTTPException(429,'Settle an existing campaign before launching another.')
         terms=body.terms.model_dump();created=time.time()
         d={'terms':terms,'terms_digest':digest(terms),'mode':body.mode,'created':created,'deadline':created+terms['duration_minutes']*60,
            'outcome':None,'audit':[]}
+        if owner.startswith(MERCHANT_PREFIX):
+            d['store_name'] = data(get(owner, 'merchant'))['name']
         audit(d,'terms_approved','Organizer approved these exact terms. Bonus exposure excludes PayPal fees and is not a segregated reserve.')
         row=add(Record(id=secrets.token_hex(16),kind='campaign',owner=owner,state='open',data=json.dumps(d)))
         return summary(row,owner,manage=True)
@@ -283,7 +325,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
         row = get(cid, 'campaign')
         if data(row)['mode'] != 'sandbox':
             raise HTTPException(404, 'Campaign not found.')
-        return summary(row, owner)
+        return {**summary(row, owner), 'paypal_client_id': accounts.client_id(row.owner)}
 
     @app.get('/api/firstmover/campaigns/{cid}')
     def show(cid: str, request: Request, owner=Depends(find_visitor)):
@@ -315,6 +357,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             owner_action(campaign,owner,request)
         elif owner is None:
             raise HTTPException(401, "Start a participant session first.")
+        paypal = None if demo else accounts.for_campaign(campaign.owner)
         row,d,pledge,p=reserve_join(cid,body,owner)
         if d['mode']=='demo':
             existing=sorted([x for x in children(cid) if x.state in ('authorized','creating')],key=lambda x:data(x)['joined_at'])
@@ -326,7 +369,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             return await paypal.request('POST','/v2/checkout/orders',headers={'PayPal-Request-Id':oid,'Prefer':'return=representation'},json={
                 'intent':'AUTHORIZE','purchase_units':[{'reference_id':cid,'custom_id':pledge.id,
                 'description':'FirstMover conditional workshop commitment','amount':{'currency_code':'USD','value':amount(d['terms']['price_cents'])}}],
-                'application_context':{'shipping_preference':'NO_SHIPPING','brand_name':'FirstMover sandbox'}})
+                'application_context':{'shipping_preference':'NO_SHIPPING','brand_name':d.get('store_name','FirstMover sandbox')}})
         async def read(od,oid):
             if not od.get('provider_id'):raise ValueError('Order ID unknown')
             pp={**p,'order_id':od['provider_id']}
@@ -349,7 +392,8 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
         if d['mode']!='sandbox':raise HTTPException(409,'Demo commitments do not contact PayPal.')
         if pledge.state=='authorized':return summary(row,owner)
         if pledge.state!='awaiting_approval':raise HTTPException(409,'This authorization needs reconciliation before another action.')
-        order=await check_order(p,d['terms'])
+        paypal = accounts.for_campaign(row.owner)
+        order=await check_order(paypal,p,d['terms'])
         if order.get('status')!='APPROVED':raise HTTPException(409,'Approve the order in PayPal first.')
         payer=payer_identity(order)
         if not isinstance(payer,str) or not re.fullmatch(r'[A-Z0-9]{5,32}',payer):raise HTTPException(502,'PayPal did not identify the payer.')
@@ -369,7 +413,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
                 raise HTTPException(409,'This PayPal account already has a commitment in this campaign.')
         async def call(oid):return await paypal.request('POST','/v2/checkout/orders/'+p['order_id']+'/authorize',headers={'PayPal-Request-Id':oid,'Prefer':'return=representation'},json={})
         async def read(od,oid):
-            order=await check_order(p,cd['terms']);auths=order['purchase_units'][0].get('payments',{}).get('authorizations',[])
+            order=await check_order(paypal,p,cd['terms']);auths=order['purchase_units'][0].get('payments',{}).get('authorizations',[])
             if len(auths)!=1:raise ValueError('Authorization not visible yet')
             aid=ident(auths[0]);raw=await paypal.request('GET','/v2/payments/authorizations/'+aid)
             ident(raw,aid);money(raw['amount'],cd['terms']['price_cents'])
@@ -399,6 +443,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
 
     async def financial_step(row,pledge,action):
         d=data(row);p=data(pledge);terms=d['terms'];sim=d['mode']=='demo'
+        paypal = None if sim else accounts.for_campaign(row.owner)
         aid=p.get('authorization_id');key=action+':'+pledge.id
         async def call(oid):
             if action=='capture':
@@ -410,7 +455,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
                 raw=await paypal.request('GET','/v2/payments/authorizations/'+aid);ident(raw,aid);money(raw['amount'],terms['price_cents'])
                 return {'provider_id':aid,'status':raw['status'],'verified':raw['status']=='VOIDED'}
             if action=='capture':
-                order=await check_order(p,terms)
+                order=await check_order(paypal,p,terms)
                 captures=order['purchase_units'][0].get('payments',{}).get('captures',[])
                 if len(captures)!=1:raise ValueError('Exactly one capture must be visible on this order')
                 capid=ident(captures[0]);raw=await paypal.request('GET','/v2/payments/captures/'+capid)
@@ -424,7 +469,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             return {'provider_id':raw['id'],'status':raw['status'],'verified':raw['status']=='COMPLETED'}
         if not sim:
             # Re-read the bound order before any capture/refund; void operates on its saved authorization.
-            order=await check_order(p,terms)
+            order=await check_order(paypal,p,terms)
             auths=order['purchase_units'][0].get('payments',{}).get('authorizations',[])
             if not any(x.get('id')==aid for x in auths):raise HTTPException(502,'Saved authorization is not present on its original order.')
         result=await once(key,row.owner,row.id,{'capture':'Capture commitment','void':'Release authorization','refund':'Recover captured commitment'}[action],call,read,sim)
@@ -503,7 +548,8 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
             with factory() as db:op=db.get(Record,opid)
             if op and data(op).get('provider_id'):p['order_id']=data(op)['provider_id']
             else:raise HTTPException(409,'Order identity is unknown. Inspect PayPal before any new checkout; no automatic write retry is allowed.')
-        order=await check_order(p,d['terms'])
+        paypal = accounts.for_campaign(row.owner)
+        order=await check_order(paypal,p,d['terms'])
         auths=order['purchase_units'][0].get('payments',{}).get('authorizations',[])
         if not auths:
             auth_op_id='fmop-'+hashlib.sha256(('authorize:'+pid).encode()).hexdigest()[:40]

@@ -7,6 +7,7 @@ The source contains a working local-simulation campaign experience, bounded AI c
 ## Verify the new deployment
 
 - Deploy the same revision to the new Render service and `firstmover-drafter` worker.
+- Register two merchant workspaces and connect separate PayPal Sandbox apps. Confirm each sees only its own campaigns and Payouts status.
 - Repeat the USD 0.01 Payouts permission test with a personal sandbox recipient.
 - Verify one buyer approval → authorization → independent authorization GET.
 - Verify a two-person filled campaign → two captures → independent capture GETs.

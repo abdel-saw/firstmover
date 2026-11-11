@@ -416,3 +416,91 @@ def test_campaign_model_repairs_invalid_schema_once(monkeypatch):
     assert result['proposal']['price_cents'] == TERMS['price_cents']
     assert len(payloads) == 2
     assert 'price_cents: greater_than_equal' in payloads[1]['messages'][-1]['content']
+
+
+def test_merchant_signup_paypal_and_settlement_are_tenant_scoped(tmp_path, monkeypatch):
+    from base64 import b64decode
+
+    app = create_app(Settings(
+        database_url=f'sqlite:///{tmp_path/"merchant.db"}',
+        merchant_encryption_key='workspace-test-key-'*3,
+        paypal_client_id='legacy-unused', paypal_client_secret='legacy-unused-secret',
+    ))
+    gateways = {'merchant-alpha': Gateway(), 'merchant-beta': Gateway()}
+    secrets = {'merchant-alpha': 'alpha-private-secret', 'merchant-beta': 'beta-private-secret'}
+    actual_client = httpx.AsyncClient
+
+    def route(request):
+        auth = request.headers['authorization']
+        if request.url.path.endswith('/oauth2/token'):
+            client_id, secret = b64decode(auth.removeprefix('Basic ')).decode().split(':', 1)
+            assert client_id in secrets
+            if secrets[client_id] != secret:
+                return httpx.Response(401)
+            return httpx.Response(200, json={'access_token':client_id})
+        gateway = gateways[auth.removeprefix('Bearer ')]
+        request.headers['authorization'] = 'Bearer private-paypal-token'
+        return gateway.handle(request)
+
+    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',
+                        lambda **kwargs: actual_client(transport=httpx.MockTransport(route), **kwargs))
+    base = '/api/firstmover'
+    signup = base+'/organizer/signup'
+    connection = base+'/organizer/paypal'
+    auth = base+'/organizer/session'
+    config = base+'/organizer/config'
+    campaign_path = base+'/campaigns/'
+    password = 'a-long-test-password'
+    campaign = {'terms':TERMS,'mode':'sandbox','approved':True}
+    no_bonus = {**campaign, 'terms':{**TERMS,'early_slots':0,'bonus_cents':0}}
+
+    with TestClient(app) as alpha, TestClient(app) as beta, TestClient(app) as shopper:
+        assert shopper.put(connection,json={'client_id':'merchant-alpha','client_secret':secrets['merchant-alpha']}).status_code == 403
+        for client, name in ((alpha,'Alpha'), (beta,'Beta')):
+            registered = client.post(signup, json={'email':name+'@example.test','store_name':name+' Workshop','password':password})
+            assert registered.status_code == 200, registered.text
+            assert post(client, '/campaigns', campaign).status_code == 409
+        assert shopper.post(signup,json={'email':'ALPHA@example.test','store_name':'Copy','password':password}).status_code == 409
+        bad_input = alpha.put(connection,json={'client_id':'bad!', 'client_secret':'tiny'})
+        assert bad_input.status_code == 422 and 'tiny' not in bad_input.text
+        assert alpha.put(connection,json={'client_id':'merchant-alpha','client_secret':'wrong-test-secret'}).status_code == 502
+        assert not alpha.get(config).json()['paypal_configured']
+        for client, client_id in ((alpha,'merchant-alpha'), (beta,'merchant-beta')):
+            connected = client.put(connection,json={'client_id':client_id,'client_secret':secrets[client_id]})
+            assert connected.status_code == 200, connected.text
+            assert secrets[client_id] not in connected.text and secrets[client_id] not in client.get(config).text
+        assert alpha.put(connection,json={'client_id':'merchant-beta','client_secret':secrets['merchant-beta']}).status_code == 409
+
+        payout_body = {'recipient':'buyer@example.test','approved':True}
+        assert post(alpha, '/payout-check', payout_body).json()['verified']
+        assert not beta.get(config).json()['payout_verified']
+        assert post(beta, '/campaigns', campaign).status_code == 409
+        alpha_offer = post(alpha, '/campaigns', campaign).json()
+        beta_offer = post(beta, '/campaigns', no_bonus).json()
+        alpha_id, beta_id = alpha_offer['id'], beta_offer['id']
+        assert [offer['id'] for offer in beta.get(campaign_path.rstrip('/')).json()] == [beta_id]
+        assert beta.get(campaign_path+alpha_id).status_code == 404
+        assert post(beta, '/campaigns/'+alpha_id+'/close').status_code == 404
+
+        shopper.post('/api/session')
+        for offer, client_id in ((alpha_offer,'merchant-alpha'),(beta_offer,'merchant-beta')):
+            public = shopper.get(base+'/public-campaigns/'+offer['id']).json()
+            assert public['paypal_client_id'] == client_id and 'audit' not in public
+            assert public['store_name'] == offer['store_name']
+            assert secrets[client_id] not in json.dumps(public)
+            sandbox_join(shopper, gateways[client_id], offer)
+            expire(app, offer['id'])
+        assert len(gateways['merchant-alpha'].orders) == len(gateways['merchant-beta'].orders) == 1
+
+        assert alpha.delete(auth).status_code == 200
+        assert alpha.post(auth,json={'email':'alpha@example.test','password':password}).status_code == 200
+        assert alpha.get(campaign_path+alpha_id).status_code == 200
+        assert settle(alpha, alpha_offer, admin=False)['pledges'][0]['state'] == 'bonus_paid'
+        assert settle(beta, beta_offer, admin=False)['pledges'][0]['state'] == 'released'
+        assert len(gateways['merchant-alpha'].payouts) == 2
+        assert gateways['merchant-beta'].payouts == {}
+
+    with app.state.factory() as db:
+        rows = db.scalars(select(Record).where(Record.kind.in_(('paypal_connection','merchant')))).all()
+        assert len(rows) == 4
+        assert all(value not in row.data for row in rows for value in (*secrets.values(), password))

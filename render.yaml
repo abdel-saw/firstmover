@@ -10,15 +10,11 @@ services:
       - key: ADMIN_TOKEN
         generateValue: true
       - key: DATABASE_URL
-        value: sqlite:///./caseweave.db
+        sync: false
       - key: MAX_SESSIONS
         value: "1000"
-      - key: ORGANIZER_PASSWORD
-        sync: false
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
-        sync: false
+      - key: MERCHANT_ENCRYPTION_KEY
+        generateValue: true
       - key: AI_TRANSPORT
         value: astropods_queue
       - key: DRAFTER_SHARED_TOKEN

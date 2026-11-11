@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from sqlalchemy import select, delete, update, func, or_
@@ -74,6 +76,15 @@ def create_app(settings=None):
     settings=settings or Settings()
     factory=database(settings.database_url)
     app=FastAPI(title="FirstMover · CaseWeave archive",version="0.2.0")
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        if request.url.path in (
+            "/api/firstmover/organizer/session", "/api/firstmover/organizer/signup",
+            "/api/firstmover/organizer/paypal",
+        ):
+            return JSONResponse({"detail":"Check the values entered in the form."}, status_code=422)
+        return await request_validation_exception_handler(request, exc)
+
     app.state.factory=factory
     app.state.settings=settings
     paypal=PayPal(settings)

@@ -53,7 +53,7 @@ DRAFTER_SHARED_TOKEN=<the private random value>
 DRAFTER_WAIT_SECONDS=55
 ```
 
-Configure the existing PayPal Sandbox credentials and an organizer password in the new service. No model key or `AI_MODEL` is required on Render for this transport. Gateway credentials remain inside Astropods. The UI will say **AI configured**, which means configuration is present, not that a worker has authenticated or inference has succeeded.
+Configure the durable database and merchant encryption key in the new service. Merchants register and connect their own PayPal Sandbox apps from the dashboard. No model key or `AI_MODEL` is required on Render for this transport. Gateway credentials remain inside Astropods. The UI will say **AI configured**, which means configuration is present, not that a worker has authenticated or inference has succeeded.
 
 Until the worker is running, an analysis request waits up to 55 seconds, then visibly falls back to evidence checks. Do not repeatedly click analysis during deployment.
 
