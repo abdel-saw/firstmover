@@ -131,7 +131,7 @@
 
 .fm-enter { animation: fm-enter 430ms var(--fm-ease) var(--delay,0ms) both; }
 @keyframes fm-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
-.fm-modal { width: min(500px,calc(100vw - 32px)); border: 1px solid var(--fm-line); background: var(--fm-white); color: var(--fm-ink); border-radius: 20px; box-shadow: 0 24px 75px #0f244b36; }
+.fm-modal { position: fixed; inset: 0; margin: auto; width: min(500px,calc(100vw - 32px)); border: 1px solid var(--fm-line); background: var(--fm-white); color: var(--fm-ink); border-radius: 20px; box-shadow: 0 24px 75px #0f244b36; }
 .fm-modal[open] { animation: fm-enter 240ms var(--fm-ease) both; }
 .fm-modal::backdrop { background: #1029559e; backdrop-filter: blur(4px); animation: fm-backdrop 200ms ease-out both; }
 @keyframes fm-backdrop { from { opacity: 0; } to { opacity: 1; } }
