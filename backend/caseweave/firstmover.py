@@ -237,7 +237,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
         client_id = accounts.client_id(owner)
         merchant = get(owner, 'merchant') if owner.startswith(MERCHANT_PREFIX) else None
         return {'paypal_configured':bool(client_id), 'paypal_client_id':client_id,
-                'merchant_paypal_setup':bool(merchant and accounts.cipher),
+                'merchant_account':bool(merchant), 'merchant_paypal_setup':bool(merchant and accounts.cipher),
                 'store_name':data(merchant)['name'] if merchant else '',
                 'ai_configured':settings.ai_configured, 'payout_verified':probe_ok(owner),
                 'environment':'sandbox'}

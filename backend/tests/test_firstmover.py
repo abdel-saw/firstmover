@@ -504,3 +504,23 @@ def test_merchant_signup_paypal_and_settlement_are_tenant_scoped(tmp_path, monke
         rows = db.scalars(select(Record).where(Record.kind.in_(('paypal_connection','merchant')))).all()
         assert len(rows) == 4
         assert all(value not in row.data for row in rows for value in (*secrets.values(), password))
+
+
+def test_merchant_config_reports_missing_credential_storage(tmp_path):
+    app = create_app(Settings(database_url=f'sqlite:///{tmp_path/"merchant.db"}',
+                              merchant_encryption_key='', organizer_password='legacy-test'))
+    base = '/api/firstmover/organizer'
+    with TestClient(app) as client:
+        assert client.post(base+'/signup',json={
+            'store_name':'Test store','email':'merchant@example.test','password':'a-long-test-password',
+        }).status_code == 200
+        config = client.get(base+'/config').json()
+        assert config['merchant_account'] and not config['merchant_paypal_setup']
+        assert not config['paypal_configured']
+        response = client.put(base+'/paypal',json={
+            'client_id':'sandbox-client','client_secret':'sandbox-secret',
+        })
+        assert response.status_code == 503
+        assert client.post(base+'/session',json={'password':'legacy-test'}).status_code == 200
+        config = client.get(base+'/config').json()
+        assert not config['merchant_account'] and not config['merchant_paypal_setup']
