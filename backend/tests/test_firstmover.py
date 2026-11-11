@@ -77,7 +77,7 @@ class Gateway:
 
 @pytest.fixture
 def setup(tmp_path,monkeypatch):
-    settings=Settings(database_url=f'sqlite:///{tmp_path/"firstmover.db"}',admin_token='operator-test',paypal_client_id='sandbox-id',paypal_client_secret='private-secret')
+    settings=Settings(database_url=f'sqlite:///{tmp_path/"firstmover.db"}',admin_token='operator-test',organizer_password='organizer-test',paypal_client_id='sandbox-id',paypal_client_secret='private-secret')
     app=create_app(settings);gateway=Gateway();actual=httpx.AsyncClient
     monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(gateway.handle),**kw))
     with TestClient(app) as client:
@@ -86,11 +86,11 @@ def setup(tmp_path,monkeypatch):
 
 def post(c,path,body=None,admin=False):return c.post('/api/firstmover'+path,json=body,headers=ADMIN if admin else {})
 def launch(c,mode='demo'):
-    r=post(c,'/campaigns',{'terms':TERMS,'mode':mode,'approved':True},admin=mode=='sandbox');assert r.status_code==200,r.text;return r.json()
+    r=post(c,'/campaigns',{'terms':TERMS,'mode':mode,'approved':True},admin=True);assert r.status_code==200,r.text;return r.json()
 def probe(c):
     r=post(c,'/payout-check',{'recipient':'buyer@example.test','approved':True},True);assert r.status_code==200,r.text;return r.json()
 def join(c,row,name='Alex'):
-    r=post(c,'/campaigns/'+row['id']+'/join',{'name':name,'terms_digest':row['terms_digest'],'accepted':True});assert r.status_code==200,r.text;return r.json()
+    r=post(c,'/campaigns/'+row['id']+'/join',{'name':name,'terms_digest':row['terms_digest'],'accepted':True},admin=row['mode']=='demo');assert r.status_code==200,r.text;return r.json()
 def sandbox_join(c,g,row,payer='BUYER123'):
     result=join(c,row);g.orders[result['order_id']]['status']='APPROVED';g.orders[result['order_id']]['payer']={'payer_id':payer}
     r=post(c,'/pledges/'+result['commitment_id']+'/authorize');assert r.status_code==200,r.text
@@ -98,7 +98,7 @@ def sandbox_join(c,g,row,payer='BUYER123'):
 def expire(app,cid):
     with app.state.factory() as db:
         r=db.get(Record,cid);d=json.loads(r.data);d['deadline']=time.time()-1;r.data=json.dumps(d);db.commit()
-def settle(c,row,admin=False):
+def settle(c,row,admin=True):
     r=post(c,'/campaigns/'+row['id']+'/close',admin=admin);assert r.status_code==200,r.text
     for _ in range(15):
         r=post(c,'/campaigns/'+row['id']+'/step',admin=admin);assert r.status_code==200,r.text
@@ -114,7 +114,7 @@ def test_demo_filled_group_and_repeated_settlement(setup):
     assert [p['state'] for p in result['pledges']]==['captured']*3
     assert len(result['operations'])==3
     assert all(op['status']=='SIMULATED' for op in result['operations'])
-    again=post(c,'/campaigns/'+row['id']+'/step').json();assert len(again['operations'])==3
+    again=post(c,'/campaigns/'+row['id']+'/step',admin=True).json();assert len(again['operations'])==3
     assert not g.calls
 
 
@@ -128,17 +128,17 @@ def test_demo_failure_releases_and_pays_only_early_slots(setup):
 
 def test_consent_limits_and_isolation(setup):
     app,c,g=setup
-    assert post(c,'/campaigns',{'terms':TERMS,'mode':'demo','approved':False}).status_code==422
-    assert post(c,'/campaigns',{'terms':{**TERMS,'early_slots':4},'mode':'demo','approved':True}).status_code==422
+    assert post(c,'/campaigns',{'terms':TERMS,'mode':'demo','approved':False},admin=True).status_code==422
+    assert post(c,'/campaigns',{'terms':{**TERMS,'early_slots':4},'mode':'demo','approved':True},admin=True).status_code==422
     row=launch(c)
-    assert post(c,'/campaigns/'+row['id']+'/join',{'name':'Alex','terms_digest':'a'*64,'accepted':True}).status_code==409
+    assert post(c,'/campaigns/'+row['id']+'/join',{'name':'Alex','terms_digest':'a'*64,'accepted':True},admin=True).status_code==409
     with TestClient(app) as other:
         other.post('/api/session')
-        assert not other.get('/api/firstmover/campaigns').json()
-        assert other.get('/api/firstmover/campaigns/'+row['id']).json()['is_owner'] is False
+        assert other.get('/api/firstmover/campaigns').status_code==403
+        assert other.get('/api/firstmover/public-campaigns/'+row['id']).status_code==404
         assert post(other,'/campaigns/'+row['id']+'/close').status_code==404
     expire(app,row['id'])
-    assert post(c,'/campaigns/'+row['id']+'/join',{'name':'Alex','terms_digest':row['terms_digest'],'accepted':True}).status_code==409
+    assert post(c,'/campaigns/'+row['id']+'/join',{'name':'Alex','terms_digest':row['terms_digest'],'accepted':True},admin=True).status_code==409
     assert not g.calls
 
 
@@ -220,7 +220,7 @@ def test_wrong_capture_amount_never_marks_group_funded(setup):
     for i in range(3):row,_=sandbox_join(c,g,row,'BUYER00'+str(i))
     post(c,'/campaigns/'+row['id']+'/close',admin=True);g.bad_amount=True
     assert post(c,'/campaigns/'+row['id']+'/step',admin=True).status_code==502
-    result=c.get('/api/firstmover/campaigns/'+row['id']).json()
+    result=c.get('/api/firstmover/campaigns/'+row['id'],headers=ADMIN).json()
     assert result['state']=='review' and not any(p['state']=='captured' for p in result['pledges'])
     assert post(c,'/campaigns/'+row['id']+'/recover',admin=True).status_code==409
 
@@ -308,9 +308,9 @@ def test_campaign_concurrent_close_is_reserved_once(setup):
     app,c,g=setup;row=launch(c)
     join(c,row)
     with ThreadPoolExecutor(max_workers=2) as workers:
-        results=list(workers.map(lambda _:post(c,'/campaigns/'+row['id']+'/close'),range(2)))
+        results=list(workers.map(lambda _:post(c,'/campaigns/'+row['id']+'/close',admin=True),range(2)))
     assert all(r.status_code in (200,409) for r in results)
-    stored=c.get('/api/firstmover/campaigns/'+row['id']).json()
+    stored=c.get('/api/firstmover/campaigns/'+row['id'],headers=ADMIN).json()
     assert stored['outcome']=='release' and len([a for a in stored['audit'] if a['action']=='settlement_approved'])==1
 
 
@@ -353,3 +353,66 @@ def test_failed_ai_proposal_can_be_explicitly_retried_without_accepting_stale_co
         ai.complete(second['id'],second['lease_token'],result={'proposal':proposal,'model':'test-model'})
         result=await task;assert result['proposal']==proposal
     asyncio.run(scenario())
+
+
+def test_organizer_session_and_public_checkout_are_separate(setup):
+    app, organizer, gateway = setup
+    session = '/api/firstmover/organizer/session'
+    base = '/api/firstmover'
+    launch_body = {'terms': TERMS, 'mode': 'sandbox', 'approved': True}
+    assert post(organizer, '/campaigns', launch_body).status_code == 403
+    assert post(organizer, '/plan', {'brief': 'A workshop for three participants.'}).status_code == 403
+    assert organizer.post(session, json={'password': 'wrong'}).status_code == 401
+    login = organizer.post(session, json={'password': 'organizer-test'})
+    assert login.status_code == 200
+    assert 'HttpOnly' in login.headers['set-cookie'] and 'SameSite=strict' in login.headers['set-cookie']
+    cookie = login.cookies['firstmover_organizer']
+    assert post(organizer, '/payout-check', {'recipient': 'buyer@example.test', 'approved': True}).json()['verified']
+    launched = post(organizer, '/campaigns', launch_body)
+    assert launched.status_code == 200, launched.text
+    row = launched.json()
+    cid = row['id']
+    with TestClient(app) as participant:
+        participant.post('/api/session')
+        assert participant.get(base+'/campaigns').status_code == 403
+        assert participant.get(base+'/public-campaigns').json()[0]['id'] == cid
+        assert participant.get(base+'/campaigns/'+cid).status_code == 404
+        assert post(participant, '/campaigns/'+cid+'/close').status_code == 404
+        own, pid = sandbox_join(participant, gateway, row)
+        assert [pledge['id'] for pledge in own['pledges']] == [pid]
+        assert own['pledges'][0]['authorization_id'] is None
+
+    public = organizer.get(base+'/public-campaigns/'+cid).json()
+    assert public['authorized_count'] == 1
+    assert public['pledges'] == public['operations'] == []
+    assert 'audit' not in public and 'eligible_ids' not in public
+    assert organizer.get(base+'/campaigns/'+cid).json()['pledges'][0]['authorization_id']
+    assert organizer.delete(session).status_code == 200
+    assert organizer.get(session, headers={'Cookie': 'firstmover_organizer='+cookie}).json()['signed_in'] is False
+    assert organizer.get(base+'/campaigns').status_code == 403
+    with TestClient(app) as next_session:
+        assert next_session.post(session, json={'password': 'organizer-test'}).status_code == 200
+        assert next_session.get(base+'/campaigns').json()[0]['id'] == cid
+
+
+def test_campaign_model_repairs_invalid_schema_once(monkeypatch):
+    from caseweave.campaign_planner import propose_campaign
+    actual_client = httpx.AsyncClient
+    valid = {**TERMS, 'price_cents': str(TERMS['price_cents']), 'questions': [],
+             'rationale': 'A short workshop for a group with a capped early bonus.'}
+    payloads = []
+
+    def handler(request):
+        payloads.append(json.loads(request.content))
+        content = json.dumps({**valid, 'price_cents': 9}) if len(payloads) == 1 else (
+            '```json\n'+json.dumps(valid)+'\n```'
+        )
+        return httpx.Response(200, json={'choices': [{'message': {'content': content}}]})
+
+    monkeypatch.setattr('caseweave.campaign_planner.httpx.AsyncClient',
+                        lambda **kw: actual_client(transport=httpx.MockTransport(handler), **kw))
+    settings = Settings(ai_base_url='https://gateway.example/v1', ai_api_key='test', ai_model='haiku')
+    result = asyncio.run(propose_campaign('A short printmaking workshop.', settings))
+    assert result['proposal']['price_cents'] == TERMS['price_cents']
+    assert len(payloads) == 2
+    assert 'price_cents: greater_than_equal' in payloads[1]['messages'][-1]['content']

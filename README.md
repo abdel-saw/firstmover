@@ -4,9 +4,9 @@
 
 Built for the PayPal AI Hackathon. The mechanism is inspired by **Alex Tabarrok's dominant assurance contracts**, not invented here. De Bono's provocation technique helped frame the question: *what if a purchase that never happens sometimes pays the buyer?*
 
-**Current verification:** demo settlement, API safety paths, and the AI worker transport are exercised locally. PayPal HTTP and model responses are mocked in those tests. FirstMover's actual Payouts, authorization, capture, void, and bonus flows have not yet been verified against our account. The earlier CaseWeave app verified authentication/Disputes read access and real AI drafting; those do not establish FirstMover's payment capabilities. No improved conversion rate or production readiness is claimed.
+**Verification.** Both PayPal Sandbox settlement outcomes were observed on the original deployment. The FirstMover replacement still needs a hosted checkout and AI proposal check. Local tests mock PayPal and model HTTP.
 
-Hosted application: https://caseweave.onrender.com/ (existing Render hostname retained). The prior project remains available at `/?app=caseweave`; its documentation is [CASEWEAVE.md](CASEWEAVE.md).
+**Deployment targets.** [GitHub repository](https://github.com/abdel-saw/firstmover), [Render demo](https://firstmover.onrender.com/) and Astropods agent `firstmover-drafter`. The previous demo is at [caseweave.onrender.com](https://caseweave.onrender.com/).
 
 ## Why this is more than checkout
 
@@ -16,7 +16,7 @@ This prototype is **not** a general escrow service, investment product, guarante
 
 ## Judge walkthrough
 
-No credentials are needed for local simulation:
+Local simulation needs only the organizer password you set in `.env`. Open `/organizer` and sign in:
 
 1. Open **Terms studio**. Edit the printmaking preset, or use **Draft terms with AI** if configured.
 2. Review the structured terms, maximum bonus liability, and execution mode. Select **Local simulation**, approve, and launch.
@@ -42,7 +42,7 @@ npm run build --prefix frontend
 python -m uvicorn caseweave.main:app --app-dir backend --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-First copy `.env.example` to `.env` and leave secrets empty for demo mode. Open http://127.0.0.1:8000/. Build the frontend again after UI edits. `COOKIE_SECURE=false` is for local HTTP; Render uses `true`.
+First copy `.env.example` to `.env` and set `ORGANIZER_PASSWORD`. The public campaign page is at http://127.0.0.1:8000/. Open http://127.0.0.1:8000/organizer to manage campaigns. Build the frontend again after UI edits. `COOKIE_SECURE=false` is for local HTTP; Render uses `true`.
 
 Or use Docker:
 
@@ -53,8 +53,8 @@ docker run --rm -p 8000:8000 --env-file .env firstmover
 
 ## PayPal sandbox verification
 
-1. Keep the existing Render sandbox credentials and `ADMIN_TOKEN`. No production endpoint exists in the adapter.
-2. In **Sandbox setup**, enter the operator token. It remains in page memory; participants do not need it.
+1. In Render, create a Blueprint from the FirstMover repository. Set `ORGANIZER_PASSWORD`, the two existing PayPal Sandbox credentials, and the shared worker token.
+2. Sign in at `/organizer` with the configured password and open **Sandbox setup**. Participants use the public campaign link and approve through PayPal.
 3. Enter an actual **personal sandbox account email**, approve the USD 0.01 virtual-funds test, and click **Send / reconcile test payout**.
 4. Only an independently read `SUCCESS` for the correct recipient, amount, currency, batch and item unlocks sandbox campaign creation. Pending/unclaimed/failed results do not pass. Enable Payouts in the developer app if access is denied. After a definite pre-acceptance rejection, explicitly repeating the approved test starts a new attempt; pending or uncertain payouts only reconcile the original attempt.
 5. Create a **PayPal sandbox** campaign. For a short demo, use a one-minute decision window and the minimum group size of two. The organizer acknowledges the published bonus liability; fees are additional, and no reserve is segregated or guaranteed.
@@ -62,7 +62,7 @@ docker run --rm -p 8000:8000 --env-file .env firstmover
 7. The organizer may settle a full group early. An unfilled sandbox group may be settled only after its real deadline. The organizer must initiate settlement; no background scheduler is promised.
 8. Inspect receipts and the sandbox account independently. A pending/unknown result stops the workflow. **Resume / reconcile** never re-dispatches an uncertain write. A definite rejected capture may be recovered after inspection. **Cancel & recover** refunds verified captures and voids remaining holds; technical recovery does not earn group-failure bonuses.
 
-Sandbox MVP limits: one organizer merchant, USD, 2–6 participants, USD 1–20 per commitment, up to three early participants, USD 0.01–2 bonus each, 1–120 minute decision windows. A maximum of 12 checkout attempts and 12 campaigns per browser session limits demo use. Duplicate payer accounts are prevented per campaign; this does not prove unique real-world people or prevent coordinated bonus farming.
+Sandbox MVP limits: one organizer merchant, USD, 2–6 participants, USD 1–20 per commitment, up to three early participants, USD 0.01–2 bonus each, 1–120 minute decision windows. A maximum of 12 checkout attempts and 12 campaigns per organizer workspace limits demo use. Duplicate payer accounts are prevented per campaign; this does not prove unique real-world people or prevent coordinated bonus farming.
 
 ### Persistence matters
 
@@ -70,17 +70,16 @@ The default SQLite file is suitable for local experiments. Render's default file
 
 ## AI: proposal, not permission
 
-The existing Astropods worker now handles campaign proposals in addition to archived evidence drafts. Redeploy it after pulling this version:
+From the FirstMover repository, publish and deploy the new worker. Use the actual new Render URL as `FIRSTMOVER_URL`.
 
 ```powershell
-git pull --ff-only
 ast blueprint push
-ast agent redeploy --name caseweave-drafter --var "DRAFTER_SHARED_TOKEN=@" --wait
+ast blueprint deploy firstmover-drafter --var "DRAFTER_SHARED_TOKEN=@" --var "FIRSTMOVER_URL=https://firstmover.onrender.com" --wait
 ```
 
-Render must deploy the same revision. The existing `AI_TRANSPORT=astropods_queue` and shared service token stay in place. No managed gateway credential is copied to Render.
+Use the same `DRAFTER_SHARED_TOKEN` in Render and the Astropods vault. The Render Blueprint enables `AI_TRANSPORT=astropods_queue`. Deploy the same revision to both services.
 
-The worker sends only the organizer's short brief to the configured model. A strict schema bounds the title, description, participant threshold, ticket amount, early cohort, bonus, duration, questions and explanation. The backend revalidates the output. A failed model response is displayed as an error; a manual preset remains available, labeled as such. Failed/expired proposals can be explicitly retried after a configuration fix, up to three attempts per unchanged brief. Completed proposals are cached. No generation is automatically retried. AI cannot launch a campaign, approve terms, choose a payout recipient, or execute a payment. Code calculates target amounts and maximum bonus liability in integer cents.
+The worker sends only the organizer's short brief to the configured model. A strict schema bounds the title, description, participant threshold, ticket amount, early cohort, bonus, duration, questions and explanation. The backend revalidates the output. A failed model response is displayed as an error; a manual preset remains available, labeled as such. Failed/expired proposals can be explicitly retried after a configuration fix, up to three attempts per unchanged brief. Completed proposals are cached. The model receives one repair request if its first response is invalid or truncated and worker budget permits. AI cannot launch a campaign, approve terms, choose a payout recipient, or execute a payment. Code calculates target amounts and maximum bonus liability in integer cents.
 
 The per-process gateway limits remain six attempts/minute and 100 attempts/process by default. These are not a dollar cap; watch Astropods usage and set platform spending limits. See [Astropods deployment](docs/ASTROPODS.md).
 
@@ -89,7 +88,8 @@ The per-process gateway limits remain six attempts/minute and 100 attempts/proce
 | Variable | Use |
 | --- | --- |
 | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` | Organizer merchant's sandbox app. The JS SDK's client ID is public; the secret stays on the server. |
-| `ADMIN_TOKEN` | Operator-only sandbox campaign creation, payout probe and settlement. |
+| `ORGANIZER_PASSWORD` | Password for the deployment’s single organizer account. The browser receives an eight-hour HttpOnly session cookie. |
+| `ADMIN_TOKEN` | Optional legacy API access. The FirstMover browser UI uses organizer sign-in. |
 | `DATABASE_URL` | SQLite locally or durable PostgreSQL. Existing `postgres://` Render URLs are supported. |
 | `COOKIE_SECURE` | `true` for HTTPS, `false` only for local HTTP. |
 | `AI_TRANSPORT` | `astropods_queue` to reuse the outbound worker, or `direct` for a server-side model provider. |
@@ -98,7 +98,7 @@ The per-process gateway limits remain six attempts/minute and 100 attempts/proce
 | `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Optional direct OpenAI-compatible model configuration. |
 | `AI_JSON_MODE`, `AI_MAX_TOKENS` | Prompt JSON or JSON mode; bounded completion tokens. |
 
-No extra environment variables are needed for FirstMover. Never use frontend build variables for PayPal secrets or operator tokens.
+Set deployment secrets in Render’s Environment settings.
 
 ## Tests
 

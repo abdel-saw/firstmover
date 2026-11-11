@@ -1,6 +1,6 @@
 # Deploy the CaseWeave Astropods drafting worker
 
-The judge-facing application stays at **https://caseweave.onrender.com/**. The worker runs inside Astropods and uses its injected AI Gateway credentials. It makes outbound authenticated requests to Render; Render never needs to enter an Astropods sign-in page or call the worker's hostname.
+The target judge-facing URL is **https://firstmover.onrender.com/**. The worker runs inside Astropods and uses its injected AI Gateway credentials. It makes outbound authenticated requests to Render; Render never needs to enter an Astropods sign-in page or call the worker's hostname.
 
 ```mermaid
 sequenceDiagram
@@ -27,7 +27,7 @@ sequenceDiagram
 - The latest repository checkout:
 
 ```bash
-git clone https://github.com/abdel-saw/caseweave.git
+git clone https://github.com/abdel-saw/firstmover.git
 cd caseweave
 ```
 
@@ -45,7 +45,7 @@ Keep it private. Store the **same value** in Render and the Astropods secret vau
 
 ## 3. Configure Render
 
-In the CaseWeave service's Environment settings, add these together and redeploy:
+In the FirstMover service's Environment settings, add these together and redeploy:
 
 ```text
 AI_TRANSPORT=astropods_queue
@@ -53,7 +53,7 @@ DRAFTER_SHARED_TOKEN=<the private random value>
 DRAFTER_WAIT_SECONDS=55
 ```
 
-Preserve existing PayPal credentials and `ADMIN_TOKEN`. No model key or `AI_MODEL` is required on Render for this transport. Gateway credentials remain inside Astropods. The UI will say **AI configured**, which means configuration is present, not that a worker has authenticated or inference has succeeded.
+Configure the existing PayPal Sandbox credentials and an organizer password in the new service. No model key or `AI_MODEL` is required on Render for this transport. Gateway credentials remain inside Astropods. The UI will say **AI configured**, which means configuration is present, not that a worker has authenticated or inference has succeeded.
 
 Until the worker is running, an analysis request waits up to 55 seconds, then visibly falls back to evidence checks. Do not repeatedly click analysis during deployment.
 
@@ -69,29 +69,26 @@ ast blueprint push
 
 `ast secrets create` prompts for the token and masks the input. Paste the same value stored in Render. If that vault secret already exists, update it through the Astropods console rather than creating a different value.
 
-`ast blueprint push` builds `Dockerfile.drafter` using `astropods.yml`, and pushes the `caseweave-drafter` blueprint. These files do not change the main Render Docker build. Run from a clean, committed checkout; the CLI checks build provenance.
+`ast blueprint push` builds `Dockerfile.drafter` using `astropods.yml`, and pushes the `firstmover-drafter` blueprint. These files do not change the main Render Docker build. Run from a clean, committed checkout; the CLI checks build provenance.
 
 ## 5. Deploy
 
 ```bash
-ast blueprint deploy caseweave-drafter --var DRAFTER_SHARED_TOKEN=@ --wait
+ast blueprint deploy firstmover-drafter --var DRAFTER_SHARED_TOKEN=@ --wait
 ```
 
-The `@` reference reads the secret from the vault instead of putting it into the command line. The spec defaults `CASEWEAVE_URL` to `https://caseweave.onrender.com`. Choose **claude-haiku-4-5** initially if prompted; the spec also lists Sonnet as an alternative.
+The `@` reference reads the secret from the vault instead of putting it into the command line. The spec defaults `FIRSTMOVER_URL` to `https://firstmover.onrender.com`. Override `FIRSTMOVER_URL` with the actual Render origin if the hostname differs. Choose **claude-haiku-4-5** initially if prompted; the spec also lists Sonnet as an alternative.
 
 The deployment injects `ASTRO_GATEWAY_URL`, `ASTRO_GATEWAY_API_KEY`, and `MODEL_DEFAULT`. The worker adds `/v1` once and uses prompt-based JSON. Do not copy gateway credentials, `ASTRO_AUTHZ_TOKEN`, or browser cookies into Render.
 
-Keep Astropods' normal sign-in/access settings. No Public routing, anonymous access grant, cookie forwarding, or inbound inference API is needed. The worker's HTTP surface serves `/health` and a minimal status page on port 80; it exposes no model-generation route. The Launch button opens status, not a chat. Use CaseWeave on Render to request an analysis. Health reports configuration presence, not a successful gateway call.
+Keep Astropods' normal sign-in/access settings. No Public routing, anonymous access grant, cookie forwarding, or inbound inference API is needed. The worker's HTTP surface serves `/health` and a minimal status page on port 80; it exposes no model-generation route. The Launch button opens status, not a chat. Use FirstMover on Render to request a campaign proposal. Health reports configuration presence, not a successful gateway call.
 
 ## 6. Verify real inference
 
-1. In Render, confirm the latest commit deployed successfully.
-2. Start with fresh sample cases. Resetting samples removes their old queued jobs/results; imported sandbox cases are preserved.
-3. Click **Analyze with AI** once on a sample case.
-4. Confirm the completed response says **AI draft**, displays the actual gateway model name, and links to valid source records.
-5. Inspect Astropods usage/traces to confirm the request consumed gateway inference.
-6. Try the missing-confirmation case. Review all generated statements; valid citation IDs alone do not establish factual faithfulness.
-7. If the app shows **Rule-based draft**, actual inference did not complete. It is not an AI success. Check worker logs, gateway credits, shared-token equality, and Render availability.
+1. Confirm Render and Astropods deployed the same revision.
+2. Sign in at `/organizer` and open **Terms studio**.
+3. Select **Draft terms with AI** and confirm editable terms and the gateway model name appear.
+4. Check Astropods usage for the inference. If the app reports an error, check worker logs, gateway credits, service token equality and the worker's Render origin.
 
 ## Protocol and behavior
 
@@ -143,8 +140,8 @@ An Active deployment does not establish that a gateway call succeeded. A startup
 After publishing an updated blueprint, update the existing agent:
 
 ```bash
-ast agent redeploy --name caseweave-drafter --var "DRAFTER_SHARED_TOKEN=@" --wait
-ast agent logs --name caseweave-drafter
+ast agent redeploy --name firstmover-drafter --var "DRAFTER_SHARED_TOKEN=@" --wait
+ast agent logs --name firstmover-drafter
 ```
 
 Wait for Render to deploy the same source revision before testing the worker. Reset sample cases, then analyze once. The fallback notice now distinguishes gateway authentication, rate/quota limits, rejected model requests, unavailable service, malformed output, invalid citations, and unclaimed/unfinished jobs. The API response includes a safe `fallback_reason` code. Logs include codes and HTTP status, never raw gateway responses, credentials, or evidence.
@@ -162,6 +159,6 @@ On November 7, a fresh hosted Jordan Lee analysis returned `invalid_citations` i
 
 ## FirstMover upgrade (November 8)
 
-The same `caseweave-drafter` worker now supports typed `firstmover_plan` jobs as well as archived CaseWeave drafts. Pull, publish the updated blueprint, and redeploy the existing agent using the commands above. The worker image now includes `campaign_planner.py`. An older worker may reject campaign proposal inputs; a configured badge alone does not verify this upgrade.
+The same `firstmover-drafter` worker now supports typed `firstmover_plan` jobs as well as archived CaseWeave drafts. Publish the new blueprint and deploy the named agent using the commands above. The worker image now includes `campaign_planner.py`. An older worker may reject campaign proposal inputs; a configured badge alone does not verify this upgrade.
 
-No new model credential or service token is needed. Open FirstMover → Terms studio → Draft terms with AI, and verify the returned model name and editable proposal. Existing per-process inference limits apply to both job kinds. No PayPal credential or participant payment data enters the campaign proposal prompt.
+No new model credential or service token is needed. Sign in at `/organizer`, then select **Terms studio → Draft terms with AI**, and verify the returned model name and editable proposal. Existing per-process inference limits apply to both job kinds. No PayPal credential or participant payment data enters the campaign proposal prompt.

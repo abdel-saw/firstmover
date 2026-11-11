@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from .db import FirstMoverRecord as Record
 from .paypal import PayPalError
 from .firstmover_ai import CampaignAI
+from .organizer import WORKSPACE, install_organizer_login
 
 
 def amount(cents): return f'{cents/100:.2f}'
@@ -60,9 +61,10 @@ class Probe(BaseModel):
     approved: bool
 
 
-def install_firstmover(app,factory,settings,paypal,visitor,admin):
+def install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin):
     ai=CampaignAI(factory,settings)
     app.state.campaign_ai=ai
+    signed_in = install_organizer_login(app, factory, settings)
 
     def get(key,kind=None):
         with factory() as db:
@@ -84,27 +86,50 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         return get(row.id)
     def children(cid,kind='pledge'):
         with factory() as db:return db.scalars(select(Record).where(Record.parent==cid,Record.kind==kind).order_by(Record.id)).all()
-    def operator(req):admin(req)
-    def owned(row,owner):
-        if row.owner!=owner:raise HTTPException(404,'Record not found.')
-    def owner_action(row,owner,req):
-        owned(row,owner)
-        if data(row).get('mode')=='sandbox':operator(req)
-    def summary(row,owner=None):
+    def organizer(request: Request, owner=Depends(find_visitor)):
+        if signed_in(request):
+            return WORKSPACE
+        require_organizer(request)
+        if owner is None:
+            raise HTTPException(401, "Start a session first.")
+        return owner
+
+    def owner_action(row, owner, request):
+        if row.owner == owner and signed_in(request):
+            return
+        if row.owner != owner:
+            raise HTTPException(404, 'Record not found.')
+        require_organizer(request)
+
+    def require_organizer(request):
+        if 'authorization' not in request.headers:
+            raise HTTPException(403, 'Sign in as organizer to manage campaigns.')
+        admin(request)
+
+    def viewer(row, request, visitor_id):
+        if signed_in(request) and row.owner in (WORKSPACE, visitor_id):
+            return row.owner
+        return visitor_id
+
+    def summary(row,owner=None,*,manage=False):
         d=data(row);pledges=children(row.id)
-        out={**d,'id':row.id,'state':row.state,'is_owner':row.owner==owner,
+        out={**d,'id':row.id,'state':row.state,'is_owner':manage and row.owner==owner,
              'pledges':[],'operations':[]}
         out.pop('lock_until',None)
         authorized_order=sorted([p for p in pledges if p.state in ('authorized','captured','released','bonus_paid')],key=lambda x:data(x).get('authorized_at',data(x).get('joined_at',0)))
         early_ids=set(d.get('eligible_ids',[p.id for p in authorized_order[:d['terms']['early_slots']]]))
         for p in sorted(pledges,key=lambda x:data(x).get('joined_at',0)):
+            if not manage and p.owner != owner:
+                continue
             pd=data(p)
             out['pledges'].append({'id':p.id,'name':pd['name'],'state':p.state,'early':p.id in early_ids,
-                                   'is_mine':p.owner==owner,'order_id':pd.get('order_id') if p.owner==owner or row.owner==owner else None,
-                                   'authorization_id':pd.get('authorization_id') if row.owner==owner else None})
-        if row.owner==owner:
+                                   'is_mine':p.owner==owner,'order_id':pd.get('order_id') if p.owner==owner or manage else None,
+                                   'authorization_id':pd.get('authorization_id') if manage else None})
+        if manage and row.owner==owner:
             out['operations']=[{'id':op.id,'state':op.state,**{k:v for k,v in data(op).items() if k in ('label','provider_id','status','message','at')}} for op in children(row.id,'operation')]
-        else:out.pop('audit',None)
+        else:
+            out.pop('audit',None)
+            out.pop('eligible_ids',None)
         out['authorized_count']=sum(p.state in ('authorized','captured','released','bonus_paid') for p in pledges)
         out['max_bonus_cents']=d['terms']['early_slots']*d['terms']['bonus_cents']
         return out
@@ -197,8 +222,8 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         return {'paypal_configured':settings.paypal_configured,'paypal_client_id':settings.paypal_client_id if settings.paypal_configured else '',
                 'ai_configured':settings.ai_configured,'payout_verified':probe_ok(),'environment':'sandbox'}
 
-    @app.post('/api/firstmover/payout-check',dependencies=[Depends(admin)])
-    async def probe(body:Probe,owner=Depends(visitor)):
+    @app.post('/api/firstmover/payout-check')
+    async def probe(body:Probe,owner=Depends(organizer)):
         if not body.approved:raise HTTPException(422,'Approve the USD 0.01 sandbox test payout.')
         with factory() as db:row=db.get(Record,'fm-payout-probe')
         pd=data(row) if row else {'recipient':body.recipient,'attempt':0}
@@ -218,19 +243,18 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         return {'verified':probe_ok(),'status':result.get('status'),'message':result.get('message'),'payout_batch_id':result.get('provider_id')}
 
     @app.post('/api/firstmover/plan')
-    async def plan(body:Brief,owner=Depends(visitor)):
+    async def plan(body:Brief,owner=Depends(organizer)):
         return await ai.run(owner,body.brief,body.retry)
 
     @app.get('/api/firstmover/campaigns')
-    def listing(owner=Depends(visitor)):
-        with factory() as db:rows=db.scalars(select(Record).where(Record.kind=='campaign',Record.owner==owner).order_by(Record.id)).all()
-        return [summary(row,owner) for row in rows]
+    def listing(owner=Depends(organizer), browser_owner=Depends(find_visitor)):
+        with factory() as db:rows=db.scalars(select(Record).where(Record.kind=='campaign',Record.owner.in_((owner,browser_owner))).order_by(Record.id)).all()
+        return [summary(row,row.owner,manage=True) for row in rows]
 
     @app.post('/api/firstmover/campaigns')
-    def launch(body:Launch,request:Request,owner=Depends(visitor)):
+    def launch(body:Launch,owner=Depends(organizer)):
         if not body.approved:raise HTTPException(422,'Review and approve the campaign terms.')
         if body.mode=='sandbox':
-            operator(request)
             if not settings.paypal_configured or not probe_ok():raise HTTPException(409,'Verify a successful sandbox Payouts test first.')
         with factory() as db:
             count=db.scalar(select(func.count()).select_from(Record).where(Record.kind=='campaign',Record.owner==owner))
@@ -240,11 +264,33 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
            'outcome':None,'audit':[]}
         audit(d,'terms_approved','Organizer approved these exact terms. Bonus exposure excludes PayPal fees and is not a segregated reserve.')
         row=add(Record(id=secrets.token_hex(16),kind='campaign',owner=owner,state='open',data=json.dumps(d)))
-        return summary(row,owner)
+        return summary(row,owner,manage=True)
+
+    @app.get('/api/firstmover/public-campaigns')
+    def public_campaigns():
+        with factory() as db:
+            rows = db.scalars(select(Record).where(
+                Record.kind == 'campaign', Record.state == 'open',
+            )).all()
+        current = time.time()
+        return [
+            summary(row) for row in sorted(rows, key=lambda row: data(row)['deadline'])
+            if data(row)['mode'] == 'sandbox' and data(row)['deadline'] > current
+        ]
+
+    @app.get('/api/firstmover/public-campaigns/{cid}')
+    def public_campaign(cid: str, owner=Depends(find_visitor)):
+        row = get(cid, 'campaign')
+        if data(row)['mode'] != 'sandbox':
+            raise HTTPException(404, 'Campaign not found.')
+        return summary(row, owner)
 
     @app.get('/api/firstmover/campaigns/{cid}')
-    def show(cid:str,owner=Depends(visitor)):
-        return summary(get(cid,'campaign'),owner)
+    def show(cid: str, request: Request, owner=Depends(find_visitor)):
+        row = get(cid, 'campaign')
+        identity = viewer(row, request, owner)
+        owner_action(row, identity, request)
+        return summary(row, identity, manage=True)
 
     def reserve_join(cid,body,owner):
         row=get(cid,'campaign');d=data(row)
@@ -261,14 +307,21 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         return row,d,pledge,p
 
     @app.post('/api/firstmover/campaigns/{cid}/join')
-    async def join(cid:str,body:Join,owner=Depends(visitor)):
+    async def join(cid:str,body:Join,request:Request,owner=Depends(find_visitor)):
+        campaign = get(cid,'campaign')
+        demo = data(campaign)['mode']=='demo'
+        if demo:
+            owner = viewer(campaign,request,owner)
+            owner_action(campaign,owner,request)
+        elif owner is None:
+            raise HTTPException(401, "Start a participant session first.")
         row,d,pledge,p=reserve_join(cid,body,owner)
         if d['mode']=='demo':
             existing=sorted([x for x in children(cid) if x.state in ('authorized','creating')],key=lambda x:data(x)['joined_at'])
             if pledge.id not in [x.id for x in existing[:d['terms']['threshold']]]:
                 save(pledge,p,'not_joined');raise HTTPException(409,'The group is full.')
             p.update(authorized_at=time.time(),early=next(i for i,x in enumerate(existing) if x.id==pledge.id)<d['terms']['early_slots'],order_id='SIM-ORDER-'+pledge.id[:8].upper(),authorization_id='SIM-AUTH-'+pledge.id[:8].upper())
-            save(pledge,p,'authorized');return summary(get(cid),owner)
+            save(pledge,p,'authorized');return summary(get(cid),owner,manage=True)
         async def call(oid):
             return await paypal.request('POST','/v2/checkout/orders',headers={'PayPal-Request-Id':oid,'Prefer':'return=representation'},json={
                 'intent':'AUTHORIZE','purchase_units':[{'reference_id':cid,'custom_id':pledge.id,
@@ -290,7 +343,9 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
 
     @app.post('/api/firstmover/pledges/{pid}/authorize')
     async def authorize(pid:str,owner=Depends(visitor)):
-        pledge=get(pid,'pledge');owned(pledge,owner);p=data(pledge);row=get(pledge.parent,'campaign');d=data(row)
+        pledge=get(pid,'pledge')
+        if pledge.owner != owner:raise HTTPException(404,'Record not found.')
+        p=data(pledge);row=get(pledge.parent,'campaign');d=data(row)
         if d['mode']!='sandbox':raise HTTPException(409,'Demo commitments do not contact PayPal.')
         if pledge.state=='authorized':return summary(row,owner)
         if pledge.state!='awaiting_approval':raise HTTPException(409,'This authorization needs reconciliation before another action.')
@@ -326,9 +381,9 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         except HTTPException:save(get(pid),p,'review');raise
 
     @app.post('/api/firstmover/campaigns/{cid}/close')
-    def close(cid:str,request:Request,owner=Depends(visitor)):
-        row=get(cid,'campaign');owner_action(row,owner,request);d=data(row)
-        if row.state!='open':return summary(row,owner)
+    def close(cid:str,request:Request,owner=Depends(find_visitor)):
+        row=get(cid,'campaign');owner=viewer(row,request,owner);owner_action(row,owner,request);d=data(row)
+        if row.state!='open':return summary(row,owner,manage=True)
         pledges=children(cid)
         if any(x.state in ('creating','authorizing','review') for x in pledges):raise HTTPException(409,'Resolve unfinished checkouts before closing. Use participant reconciliation or abandon an unapproved checkout.')
         ready=sorted([x for x in pledges if x.state=='authorized'],key=lambda x:data(x).get('authorized_at',data(x)['joined_at']))
@@ -340,7 +395,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
             audit(d,'simulation_clock','Demo deadline advanced locally; no sandbox clock was changed.')
         audit(d,'settlement_approved','Organizer approved '+('capturing the filled group.' if filled else 'releasing holds and paying eligible bonuses.'))
         row=save(row,d,'settling')
-        return summary(row,owner)
+        return summary(row,owner,manage=True)
 
     async def financial_step(row,pledge,action):
         d=data(row);p=data(pledge);terms=d['terms'];sim=d['mode']=='demo'
@@ -380,9 +435,9 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
         return False
 
     @app.post('/api/firstmover/campaigns/{cid}/step')
-    async def step(cid:str,request:Request,owner=Depends(visitor)):
-        row=get(cid,'campaign');owner_action(row,owner,request);d=data(row)
-        if row.state in ('funded','released','recovered'):return summary(row,owner)
+    async def step(cid:str,request:Request,owner=Depends(find_visitor)):
+        row=get(cid,'campaign');owner=viewer(row,request,owner);owner_action(row,owner,request);d=data(row)
+        if row.state in ('funded','released','recovered'):return summary(row,owner,manage=True)
         if row.state not in ('settling','review','recovering'):raise HTTPException(409,'Approve settlement first.')
         if d.get('lock_until',0)>time.time():raise HTTPException(409,'A settlement step is already running. Refresh later.')
         d['lock_until']=time.time()+180;row=save(row,d)
@@ -391,39 +446,39 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
             if d.get('outcome')=='recover':
                 for p in pledges:
                     if p.state=='captured':
-                        await financial_step(row,p,'refund');return summary(get(cid),owner)
+                        await financial_step(row,p,'refund');return summary(get(cid),owner,manage=True)
                     if p.state=='authorized':
-                        await financial_step(row,p,'void');return summary(get(cid),owner)
+                        await financial_step(row,p,'void');return summary(get(cid),owner,manage=True)
                 if any(p.state not in ('refunded','released','not_joined','awaiting_approval') for p in pledges):raise HTTPException(409,'Some commitments still need individual reconciliation.')
                 audit(d,'recovery_verified','Captured commitments refunded and remaining holds released. No group-failure bonus is paid on technical recovery.')
-                save(row,d,'recovered');return summary(get(cid),owner)
+                save(row,d,'recovered');return summary(get(cid),owner,manage=True)
             for p in pledges:
                 if p.state=='authorized':
                     done=await financial_step(row,p,'capture' if d['outcome']=='fund' else 'void')
                     if not done:audit(d,'waiting','Provider operation is pending. Refresh and reconcile later.')
-                    return summary(get(cid),owner)
+                    return summary(get(cid),owner,manage=True)
             if d['outcome']=='fund':
                 if sum(p.state=='captured' for p in pledges)!=d['terms']['threshold']:raise HTTPException(409,'Capture count does not match the approved threshold. Recover the campaign.')
                 audit(d,'funding_verified','Every required capture is complete. These results do not prove service delivery.')
-                save(row,d,'funded');return summary(get(cid),owner)
+                save(row,d,'funded');return summary(get(cid),owner,manage=True)
             for p in pledges:
                 if p.id in d.get('eligible_ids',[]) and p.state=='released':
                     pd=data(p)
                     result=await payout('bonus:'+p.id,owner,cid,pd.get('payer_id','DEMO'),'PAYPAL_ID',d['terms']['bonus_cents'],'Early participation bonus',d['mode']=='demo')
                     if d['mode']=='demo' or result.get('verified'):
                         pd['bonus_id']=result['provider_id'];save(get(p.id),pd,'bonus_paid')
-                    return summary(get(cid),owner)
+                    return summary(get(cid),owner,manage=True)
             if any(p.id in d.get('eligible_ids',[]) and p.state!='bonus_paid' for p in pledges):raise HTTPException(409,'Not all bonuses are confirmed.')
             audit(d,'release_verified','All holds released; eligible bonus payouts confirmed. Hold availability timing is controlled by the funding provider.')
-            save(row,d,'released');return summary(get(cid),owner)
+            save(row,d,'released');return summary(get(cid),owner,manage=True)
         except HTTPException as exc:
             current=get(cid);cd=data(current);audit(cd,'needs_review',str(exc.detail));save(current,cd,'review');raise
         finally:
             current=get(cid);cd=data(current);cd['lock_until']=0;save(current,cd)
 
     @app.post('/api/firstmover/campaigns/{cid}/recover')
-    def recovery(cid:str,request:Request,owner=Depends(visitor)):
-        row=get(cid,'campaign');owner_action(row,owner,request);d=data(row)
+    def recovery(cid:str,request:Request,owner=Depends(find_visitor)):
+        row=get(cid,'campaign');owner=viewer(row,request,owner);owner_action(row,owner,request);d=data(row)
         if row.state not in ('review','settling'):raise HTTPException(409,'Recovery is only available during an unfinished settlement.')
         if d.get('lock_until',0)>time.time():raise HTTPException(409,'A settlement step is still running.')
         # Unknown capture operations must be read back before deciding refund versus void.
@@ -432,13 +487,16 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
                 if op.id=='fmop-'+hashlib.sha256(('capture:'+p.id).encode()).hexdigest()[:40] and op.state not in ('completed','failed'):
                     raise HTTPException(409,'Reconcile the uncertain capture using Resume before recovery.')
         d['outcome']='recover';audit(d,'recovery_approved','Organizer approved refunding captured payments and voiding remaining holds. No participation bonuses for technical recovery.')
-        return summary(save(row,d,'recovering'),owner)
+        return summary(save(row,d,'recovering'),owner,manage=True)
 
     @app.post('/api/firstmover/pledges/{pid}/reconcile')
-    async def reconcile(pid:str,request:Request,owner=Depends(visitor)):
+    async def reconcile(pid:str,request:Request,owner=Depends(find_visitor)):
         p_row=get(pid,'pledge');row=get(p_row.parent,'campaign');d=data(row);p=data(p_row)
-        if p_row.owner!=owner:owner_action(row,owner,request)
-        if d['mode']!='sandbox' or p_row.state not in ('review','creating','authorizing','awaiting_approval'):return summary(row,owner)
+        manage = p_row.owner != owner
+        if manage:
+            owner = viewer(row,request,owner)
+            owner_action(row,owner,request)
+        if d['mode']!='sandbox' or p_row.state not in ('review','creating','authorizing','awaiting_approval'):return summary(row,owner,manage=manage)
         if row.state!='open':raise HTTPException(409,'Use settlement reconciliation after a campaign closes.')
         if not p.get('order_id'):
             opid='fmop-'+hashlib.sha256(('order:'+pid).encode()).hexdigest()[:40]
@@ -454,7 +512,7 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
                 raise HTTPException(409,'An authorization was dispatched with an unresolved outcome. Absence from a read is not proof of failure; inspect PayPal before closing.')
             if order.get('status') in ('CREATED','APPROVED','PAYER_ACTION_REQUIRED'):
                 # No authorization exists. This checkout is excluded from settlement; never authorize a second time here.
-                save(p_row,p,'not_joined');return summary(row,owner)
+                save(p_row,p,'not_joined');return summary(row,owner,manage=manage)
             raise HTTPException(409,'PayPal authorization state is unresolved.')
         if len(auths)!=1:raise HTTPException(409,'Unexpected authorization count. Inspect PayPal.')
         aid=ident(auths[0]);raw=await paypal.request('GET','/v2/payments/authorizations/'+aid);ident(raw,aid);money(raw['amount'],d['terms']['price_cents'])
@@ -466,6 +524,6 @@ def install_firstmover(app,factory,settings,paypal,visitor,admin):
             p.setdefault('authorized_at',time.time());save(p_row,p,'authorized')
         elif raw['status']=='VOIDED':save(p_row,p,'released')
         else:raise HTTPException(409,'Authorization requires settlement reconciliation. Use Resume or inspect PayPal.')
-        return summary(get(row.id),owner)
+        return summary(get(row.id),owner,manage=manage)
 
     return ai

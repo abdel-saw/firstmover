@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: caseweave
+    name: firstmover
     runtime: docker
     plan: free
     healthCheckPath: /api/health
@@ -13,3 +13,13 @@ services:
         value: sqlite:///./caseweave.db
       - key: MAX_SESSIONS
         value: "1000"
+      - key: ORGANIZER_PASSWORD
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: AI_TRANSPORT
+        value: astropods_queue
+      - key: DRAFTER_SHARED_TOKEN
+        sync: false

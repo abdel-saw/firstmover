@@ -27,7 +27,7 @@ log = logging.getLogger("caseweave.drafter")
 @dataclass
 class WorkerSettings:
     ai: Settings = field(default_factory=Settings)
-    caseweave_url: str = field(default_factory=lambda: os.getenv("CASEWEAVE_URL", "").strip().rstrip("/"))
+    caseweave_url: str = field(default_factory=lambda: os.getenv("FIRSTMOVER_URL", os.getenv("CASEWEAVE_URL", "")).strip().rstrip("/"))
     shared_token: str = field(default_factory=lambda: os.getenv("DRAFTER_SHARED_TOKEN", ""))
     requests_per_minute: int = field(default_factory=lambda: int(os.getenv("DRAFTER_REQUESTS_PER_MINUTE", "6")))
     max_calls_per_process: int = field(default_factory=lambda: int(os.getenv("DRAFTER_MAX_CALLS", "100")))
@@ -46,7 +46,7 @@ class WorkerSettings:
             if (not parsed.hostname or (parsed.scheme != "https" and not local_http)
                     or parsed.username or parsed.password or parsed.path not in ("", "/")
                     or parsed.query or parsed.fragment):
-                raise ValueError("CASEWEAVE_URL must be an HTTPS origin (or loopback HTTP)")
+                raise ValueError("FIRSTMOVER_URL must be an HTTPS origin (or loopback HTTP)")
 
     @property
     def configured(self):
@@ -107,6 +107,13 @@ class DraftWorker:
             self.timestamps.popleft()
         return self.calls < self.settings.max_calls_per_process and len(self.timestamps) < self.settings.requests_per_minute
 
+    def reserve_call(self):
+        if not self.can_infer():
+            return False
+        self.timestamps.append(time.monotonic())
+        self.calls += 1
+        return True
+
     async def complete(self, client, job, **kwargs):
         body = {"lease_token": job["lease_token"], **kwargs}
         url = self.settings.caseweave_url + "/api/internal/drafting/jobs/" + job["id"] + "/complete"
@@ -149,11 +156,9 @@ class DraftWorker:
             if not isinstance(brief,str) or not 15<=len(brief)<=4000:
                 await self.complete(client,job,error="invalid_input")
                 return True
-            self.timestamps.append(time.monotonic())
-            self.calls+=1
             self.last_stage="gateway"
             try:
-                result=await propose_campaign(brief,self.settings.ai)
+                result=await propose_campaign(brief, self.settings.ai, reserve_call=self.reserve_call)
             except DraftFailure as exc:
                 self.last_error=exc.code
                 log.warning("Campaign proposal failure: %s; HTTP status: %s",exc.code,exc.http_status or "none")
@@ -225,7 +230,7 @@ def create_worker_app(settings=None):
         stop = asyncio.Event()
         if not settings.configured:
             missing = []
-            if not settings.caseweave_url: missing.append("CASEWEAVE_URL")
+            if not settings.caseweave_url: missing.append("FIRSTMOVER_URL")
             if len(settings.shared_token) < 32: missing.append("DRAFTER_SHARED_TOKEN")
             if not settings.ai.ai_base_url: missing.append("ASTRO_GATEWAY_URL/AI_BASE_URL")
             if not settings.ai.ai_api_key: missing.append("ASTRO_GATEWAY_API_KEY/AI_API_KEY")
@@ -239,7 +244,7 @@ def create_worker_app(settings=None):
             if task:
                 await task
 
-    app = FastAPI(title="CaseWeave Astropods worker", docs_url=None, redoc_url=None,
+    app = FastAPI(title="FirstMover Astropods worker", docs_url=None, redoc_url=None,
                   openapi_url=None, lifespan=lifespan)
     app.state.worker = worker
 

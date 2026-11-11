@@ -16,7 +16,7 @@ class CampaignAI:
     def __init__(self,factory,settings):self.factory,self.settings=factory,settings
 
     async def run(self,owner,brief,retry=False):
-        key='plan-v1:'+owner+':'+hashlib.sha256(brief.encode()).hexdigest()
+        key='plan-v2:'+owner+':'+hashlib.sha256(brief.encode()).hexdigest()
         with self.factory() as db:
             job=db.scalar(select(Record).where(Record.unique_key==key))
             if job is None:

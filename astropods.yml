@@ -1,5 +1,5 @@
 spec: blueprint/v1
-name: caseweave-drafter
+name: firstmover-drafter
 agent:
   build:
     context: .
@@ -12,9 +12,9 @@ agent:
     timeout: 10s
     test: ["python", "-c", "import urllib.request; urllib.request.build_opener(urllib.request.ProxyHandler({})).open('http://127.0.0.1/health', timeout=3).close()"]
   inputs:
-    - name: CASEWEAVE_URL
+    - name: FIRSTMOVER_URL
       datatype: string
-      default: https://caseweave.onrender.com
+      default: https://firstmover.onrender.com
       description: Render application origin; the worker pulls authenticated jobs from it.
     - name: DRAFTER_SHARED_TOKEN
       datatype: string

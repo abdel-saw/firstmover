@@ -12,22 +12,22 @@ An organizer describes a workshop. AI proposes bounded, editable terms and ident
 
 The organizer settles the result. A filled group requires verified captures. An unfilled group releases its holds before paying early bonuses through Payouts. Every operation is persisted before dispatch and independently read back. Unknown outcomes stay unresolved; recovery can refund verified captures and void remaining holds. The application does not claim atomic multi-payment settlement, segregated reserves, automatic legal enforcement or guaranteed demand improvement.
 
-The hosted demo also includes a clearly labeled local simulation, so judges can explore both outcomes without credentials. Actual sandbox mode requires the operator's successful USD 0.01 Payouts permission test; participants use distinct personal sandbox payer accounts.
+The repository includes setup instructions for judges to explore both outcomes in local simulation. The public hosted campaign pages provide participant checkout for open sandbox campaigns. Actual sandbox mode requires the operator's successful USD 0.01 Payouts permission test; participants use distinct personal sandbox payer accounts.
 
 ## Tools
 
 PayPal Orders v2 and Payments v2 implement authorization, capture, void, refund and reads. PayPal Payouts implements participation bonuses. Astropods hosts the outbound worker and AI Gateway for structured campaign proposals. Render hosts the API/UI. React/Vite, FastAPI and SQLAlchemy provide the application. OpenAI Codex supported implementation, debugging, tests and documentation; the runtime model is shown after an actual proposal response.
 
-## Links
+## Deployment targets
 
-- Hosted: https://caseweave.onrender.com/
-- Repository: https://github.com/abdel-saw/caseweave
+- Hosted: https://firstmover.onrender.com/
+- Repository: https://github.com/abdel-saw/firstmover
 - License: MIT, at repository root.
 - Video: **not recorded yet**; must be public on YouTube and under three minutes.
 
 ## Verification language to finish before submission
 
-Update this section only after observing real results. At implementation time, local tests use mocked PayPal/model HTTP. Actual FirstMover payout, hold, capture, void, failure bonus and new AI-proposal generation remain to be verified. Do not describe the older CaseWeave OAuth/Disputes checks as proof of those capabilities. Keep any unverified branches explicitly labeled.
+Both PayPal Sandbox settlement branches were observed on the previous deployment. Repeat checkout and settlement checks on the new service and verify live AI proposal generation before submitting the new links. Local tests mock PayPal and model HTTP.
 
 ## Credits and novelty
 

@@ -2,19 +2,19 @@
 
 ## Ready to test
 
-The source contains a working local-simulation campaign experience, bounded AI campaign proposals via the existing Astropods queue, and sandbox payment adapters. The UI preserves the distinction between simulation, model output, authorization, captured payment, voided authorization, pending payout and verified payout success.
+The source contains a working local-simulation campaign experience, bounded AI campaign proposals via the Astropods queue, and sandbox payment adapters. The UI preserves the distinction between simulation, model output, authorization, captured payment, voided authorization, pending payout and verified payout success.
 
-## Still required on the owner's accounts
+## Verify the new deployment
 
-- Deploy the same revision on Render and the existing Astropods worker.
-- Verify the USD 0.01 Payouts permission test with a personal sandbox recipient.
+- Deploy the same revision to the new Render service and `firstmover-drafter` worker.
+- Repeat the USD 0.01 Payouts permission test with a personal sandbox recipient.
 - Verify one buyer approval → authorization → independent authorization GET.
 - Verify a two-person filled campaign → two captures → independent capture GETs.
 - Verify an unfilled one-minute campaign → authorization void → independent GET → bonus payout → independently matched SUCCESS.
 - Verify actual AI proposal generation, not a preset or stored model fixture.
 - Review and, where applicable, resolve all sandbox holds after the recording.
 
-No source inspection, unit test, credential-presence badge or Disputes read check replaces these live checks. Do not claim they have passed until observed.
+Both sandbox settlement branches were observed on the prior deployment. Repeat them on the new service and verify an AI proposal there.
 
 ## Financial behavior
 

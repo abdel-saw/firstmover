@@ -85,11 +85,16 @@ def create_app(settings=None):
         with factory() as session:
             yield session
 
-    def visitor(request:Request, session=Depends(db)):
+    def find_visitor(request:Request, session=Depends(db)):
         token=request.cookies.get("cw_session","")
         owner=hashlib.sha256(token.encode()).hexdigest()
         v=session.get(Visitor,owner)
         if not token or not v or datetime.fromisoformat(v.created)<datetime.now(timezone.utc)-timedelta(days=7):
+            return None
+        return owner
+
+    def visitor(owner=Depends(find_visitor)):
+        if owner is None:
             raise HTTPException(401,"Start a demo session first.")
         return owner
 
@@ -271,7 +276,7 @@ def create_app(settings=None):
         session.commit()
         return {"reset":True}
 
-    campaign_ai=install_firstmover(app,factory,settings,paypal,visitor,admin)
+    campaign_ai=install_firstmover(app,factory,settings,paypal,visitor,find_visitor,admin)
 
     @app.post("/api/internal/drafting/claim", dependencies=[Depends(drafting_worker)])
     def claim_drafting_job():
@@ -353,6 +358,8 @@ def create_app(settings=None):
     if (dist/"assets").exists():
         app.mount("/assets",StaticFiles(directory=dist/"assets"),name="assets")
     @app.get("/")
+    @app.get("/organizer")
+    @app.get("/campaign/{campaign_id}")
     def index():
         if (dist/"index.html").exists():
             return FileResponse(dist/"index.html")
