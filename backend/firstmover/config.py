@@ -21,7 +21,7 @@ def json_mode():
 
 @dataclass
 class Settings:
-    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./caseweave.db"))
+    database_url: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./firstmover.db"))
     admin_token: str = field(default_factory=lambda: os.getenv("ADMIN_TOKEN", ""))
     organizer_password: str = field(default_factory=lambda: os.getenv("ORGANIZER_PASSWORD", ""))
     merchant_encryption_key: str = field(default_factory=lambda: os.getenv("MERCHANT_ENCRYPTION_KEY", ""), repr=False)

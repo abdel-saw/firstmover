@@ -7,10 +7,10 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from caseweave.main import create_app
-from caseweave.config import Settings
-from caseweave.db import FirstMoverRecord as Record
-from caseweave.drafter import DraftWorker,WorkerSettings
+from firstmover.main import create_app
+from firstmover.config import Settings
+from firstmover.db import FirstMoverRecord as Record
+from firstmover.drafter import DraftWorker,WorkerSettings
 
 ADMIN={'Authorization':'Bearer operator-test'}
 TERMS={'title':'Printmaking together','description':'Three people commit; early participants receive a bonus if the group does not fill.',
@@ -79,7 +79,7 @@ class Gateway:
 def setup(tmp_path,monkeypatch):
     settings=Settings(database_url=f'sqlite:///{tmp_path/"firstmover.db"}',admin_token='operator-test',organizer_password='organizer-test',paypal_client_id='sandbox-id',paypal_client_secret='private-secret')
     app=create_app(settings);gateway=Gateway();actual=httpx.AsyncClient
-    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(gateway.handle),**kw))
+    monkeypatch.setattr('firstmover.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(gateway.handle),**kw))
     with TestClient(app) as client:
         client.post('/api/session')
         yield app,client,gateway
@@ -255,8 +255,8 @@ def test_firstmover_ai_worker_round_trip(tmp_path,monkeypatch):
         return httpx.Response(200,json={'choices':[{'message':{'content':json.dumps(proposal)}}]})
     class Transport(httpx.AsyncBaseTransport):
         async def handle_async_request(self,req):return await handler(req)
-    monkeypatch.setattr('caseweave.drafter.httpx.AsyncClient',lambda **kw:actual(transport=Transport(),**kw))
-    worker=DraftWorker(WorkerSettings(ai=Settings(ai_base_url='https://gateway.example/v1',ai_api_key='model-test',ai_model='haiku',ai_json_mode='prompt'),caseweave_url='https://render.example',shared_token=token))
+    monkeypatch.setattr('firstmover.drafter.httpx.AsyncClient',lambda **kw:actual(transport=Transport(),**kw))
+    worker=DraftWorker(WorkerSettings(ai=Settings(ai_base_url='https://gateway.example/v1',ai_api_key='model-test',ai_model='haiku',ai_json_mode='prompt'),firstmover_url='https://render.example',shared_token=token))
     async def scenario():
         task=asyncio.create_task(app.state.campaign_ai.run('test-owner','A printmaking workshop for three people with USD 10 tickets.'))
         await asyncio.sleep(0)
@@ -296,7 +296,7 @@ def test_payout_permission_rejection_can_retry_after_operator_fixes_access(setup
         return original(request)
     from httpx._client import AsyncClient
     actual=AsyncClient
-    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
+    monkeypatch.setattr('firstmover.paypal.httpx.AsyncClient',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
     assert post(c,'/payout-check',{'recipient':'buyer@example.test','approved':True},True).status_code==502
     assert not c.get('/api/firstmover/config').json()['payout_verified'] and not g.payouts
     denied=False
@@ -396,7 +396,7 @@ def test_organizer_session_and_public_checkout_are_separate(setup):
 
 
 def test_campaign_model_repairs_invalid_schema_once(monkeypatch):
-    from caseweave.campaign_planner import propose_campaign
+    from firstmover.campaign_planner import propose_campaign
     actual_client = httpx.AsyncClient
     valid = {**TERMS, 'price_cents': str(TERMS['price_cents']), 'questions': [],
              'rationale': 'A short workshop for a group with a capped early bonus.'}
@@ -409,7 +409,7 @@ def test_campaign_model_repairs_invalid_schema_once(monkeypatch):
         )
         return httpx.Response(200, json={'choices': [{'message': {'content': content}}]})
 
-    monkeypatch.setattr('caseweave.campaign_planner.httpx.AsyncClient',
+    monkeypatch.setattr('firstmover.campaign_planner.httpx.AsyncClient',
                         lambda **kw: actual_client(transport=httpx.MockTransport(handler), **kw))
     settings = Settings(ai_base_url='https://gateway.example/v1', ai_api_key='test', ai_model='haiku')
     result = asyncio.run(propose_campaign('A short printmaking workshop.', settings))
@@ -442,7 +442,7 @@ def test_merchant_signup_paypal_and_settlement_are_tenant_scoped(tmp_path, monke
         request.headers['authorization'] = 'Bearer private-paypal-token'
         return gateway.handle(request)
 
-    monkeypatch.setattr('caseweave.paypal.httpx.AsyncClient',
+    monkeypatch.setattr('firstmover.paypal.httpx.AsyncClient',
                         lambda **kwargs: actual_client(transport=httpx.MockTransport(route), **kwargs))
     base = '/api/firstmover'
     signup = base+'/organizer/signup'

@@ -14,7 +14,7 @@ agent:
   inputs:
     - name: FIRSTMOVER_URL
       datatype: string
-      default: https://firstmover.onrender.com
+      default: https://firstmover-dn0t.onrender.com
       description: Render application origin; the worker pulls authenticated jobs from it.
     - name: DRAFTER_SHARED_TOKEN
       datatype: string

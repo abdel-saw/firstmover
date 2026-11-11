@@ -115,7 +115,13 @@ function App({onSignOut}){
 
 function Checkout({campaign, clientId, onClose, onComplete, onError}){
   const [name,setName]=useState('');
-  return <div className="fm-modal-shade"><section className="fm-modal" role="dialog" aria-modal="true" aria-labelledby="join-title"><button className="fm-close" aria-label="Close checkout" onClick={onClose}><X/></button><span className="fm-eyebrow">PAYPAL SANDBOX COMMITMENT</span><h2 id="join-title">Be part of the group.</h2><p>{campaign.terms.title}</p><div className="fm-join-terms"><strong>{money(campaign.terms.price_cents)} temporary authorization</strong><p>Target: {campaign.terms.threshold} distinct sandbox payer accounts. Deadline {new Date(campaign.deadline*1000).toLocaleString()}. The merchant settles the outcome. {campaign.terms.bonus_cents>0&&<>The first {campaign.terms.early_slots} confirmed participants may receive {money(campaign.terms.bonus_cents)} each if the group misses the target. Technical recovery does not earn a bonus.</>}</p><small>PayPal approval and server-verified authorization are separate steps. No service delivery is guaranteed by this prototype.</small></div><label>Display name<input maxLength={40} value={name} onChange={e=>setName(e.target.value)} placeholder="Your first name"/></label><PayPalButton clientId={clientId} campaign={campaign} name={name} onComplete={onComplete} onError={onError}/></section></div>;
+  const dialog=useRef(null);
+  useEffect(()=>{
+    const element=dialog.current;
+    element.showModal();
+    return ()=>element.close();
+  },[]);
+  return <dialog className="fm-modal" ref={dialog} aria-labelledby="join-title" onCancel={event=>{event.preventDefault();onClose();}}><button className="fm-close" aria-label="Close checkout" onClick={onClose}><X/></button><span className="fm-eyebrow">PAYPAL SANDBOX COMMITMENT</span><h2 id="join-title">Be part of the group.</h2><p>{campaign.terms.title}</p><div className="fm-join-terms"><strong>{money(campaign.terms.price_cents)} temporary authorization</strong><p>Target: {campaign.terms.threshold} distinct sandbox payer accounts. Deadline {new Date(campaign.deadline*1000).toLocaleString()}. The merchant settles the outcome. {campaign.terms.bonus_cents>0&&<>The first {campaign.terms.early_slots} confirmed participants may receive {money(campaign.terms.bonus_cents)} each if the group misses the target. Technical recovery does not earn a bonus.</>}</p><small>PayPal approval and server-verified authorization are separate steps. No service delivery is guaranteed by this prototype.</small></div><label>Display name<input maxLength={40} value={name} onChange={e=>setName(e.target.value)} placeholder="Your first name"/></label><PayPalButton clientId={clientId} campaign={campaign} name={name} onComplete={onComplete} onError={onError}/></dialog>;
 }
 
 function SiteHeader(){
@@ -185,6 +191,7 @@ function PublicCampaigns(){
   const id=location.pathname.startsWith('/campaign/')?location.pathname.split('/')[2]:new URLSearchParams(location.hash.slice(1)).get('campaign');
   const [items,setItems]=useState(null),[campaign,setCampaign]=useState(null),[clientId,setClientId]=useState('');
   const [error,setError]=useState(''),[notice,setNotice]=useState(''),[joining,setJoining]=useState(false),[now,setNow]=useState(Date.now());
+  const [openingCheckout,setOpeningCheckout]=useState(false);
   const detail='/firstmover/public-campaigns/'+encodeURIComponent(id||'');
   useEffect(()=>{
     if(id){
@@ -198,37 +205,72 @@ function PublicCampaigns(){
   },[id]);
   const terms=campaign?.terms;
   const canJoin=campaign?.state==='open'&&campaign.deadline>now/1000&&campaign.authorized_count<terms.threshold;
-  return <div className="fm-app"><SiteHeader/><main className="fm-main fm-public">
-    <div className="fm-context"><span><ShieldCheck size={13}/> PayPal Sandbox · virtual funds</span></div>
+  return <div className="fm-app fm-public-site"><SiteHeader/><main className="fm-main fm-public">
     {error&&<p className="fm-alert error" role="alert">{error}</p>}
     {notice&&<p className="fm-alert" role="status">{notice}</p>}
     {!id&&<>
-      <section className="fm-hero"><div><h1>Make the <em>first move.</em></h1><p>Join a group experience with a temporary PayPal hold. If the group falls short, the organizer releases the holds and pays eligible early participants if the offer includes a bonus.</p></div></section>
-      <h2>Open campaigns</h2>
-      {items===null&&!error&&<p role="status">Loading campaigns…</p>}
-      {items?.length===0&&<p>There are no open sandbox campaigns right now.</p>}
-      <div className="fm-public-grid">{items?.map(row=><article className="fm-campaign-card" key={row.id}>
-        <h2>{row.terms.title}</h2>{row.store_name&&<strong>{row.store_name}</strong>}<p>{row.terms.description}</p>
-        <div className="fm-progress-label"><strong>{money(row.terms.price_cents)} per person</strong><span>{row.authorized_count} / {row.terms.threshold} committed</span></div>
-        <a className="fm-btn primary" href={'/campaign/'+row.id}>View campaign <ArrowUpRight size={16}/></a>
-      </article>)}</div>
+      <section className="fm-public-hero fm-enter">
+        <div className="fm-sandbox"><ShieldCheck size={15}/> PayPal Sandbox · virtual funds</div>
+        <h1>Make the <em>first move.</em></h1>
+        <p>Commit to an experience together. Authorize a temporary hold through PayPal. The merchant collects the payment if the group fills.</p>
+        {items?.length>0&&<a className="fm-btn primary" href="#open-campaigns">Explore offers <ArrowRight size={17}/></a>}
+      </section>
+      <section id="open-campaigns" aria-labelledby="open-campaigns-title">
+        <h2 id="open-campaigns-title" className="fm-public-heading">Open campaigns</h2>
+        {items===null&&!error&&<p role="status">Loading campaigns…</p>}
+        {items?.length===0&&<div className="fm-public-empty"><Users size={25}/><p>There are no open sandbox campaigns right now.</p></div>}
+        <div className="fm-public-grid">{items?.map((row,index)=><article className="fm-campaign-card fm-offer fm-enter" key={row.id} style={{'--delay':Math.min(index,4)*45+'ms'}}>
+          {row.store_name&&<span className="fm-merchant-name">{row.store_name}</span>}
+          <h3><a href={'/campaign/'+row.id}>{row.terms.title}</a></h3>
+          <p>{row.terms.description}</p>
+          <div className="fm-offer-meta"><strong>{money(row.terms.price_cents)} <small>per person</small></strong><span><Users size={16}/>{row.authorized_count} / {row.terms.threshold} committed</span></div>
+          <a className="fm-text-button" href={'/campaign/'+row.id} aria-label={'View campaign: '+row.terms.title}>View campaign <ArrowUpRight size={17}/></a>
+        </article>)}</div>
+      </section>
     </>}
-    {id&&<a className="fm-text-button" href="/"><ArrowLeft size={14}/> All campaigns</a>}
-    {id&&!campaign&&!error&&<p role="status">Loading campaign…</p>}
-    {campaign&&<article className="fm-campaign-card fm-public-detail">
-      <div className="fm-card-top"><span className="fm-tag neutral">{campaignStatus(campaign)}</span><button className="fm-text-button" onClick={()=>api(detail).then(setCampaign).catch(e=>setError(e.message))}><RefreshCw size={14}/> Refresh</button></div>
-      <h1>{terms.title}</h1>{campaign.store_name&&<strong>{campaign.store_name}</strong>}<p>{terms.description}</p>
-      <div className="fm-price"><strong>{money(terms.price_cents)}</strong><span>temporary authorization per person</span></div>
-      <div className="fm-progress-label"><strong>{campaign.authorized_count} / {terms.threshold} committed</strong><span>Deadline {new Date(campaign.deadline*1000).toLocaleString()}</span></div>
-      <div className="fm-progress"><i style={{width:Math.min(100,campaign.authorized_count/terms.threshold*100)+'%'}}/></div>
-      {terms.bonus_cents>0&&<div className="fm-bonus"><Sparkles size={20}/><div><strong>{money(terms.bonus_cents)} early bonus</strong><p>The organizer pays the first {terms.early_slots} confirmed participants if the group misses its target.</p></div></div>}
-      {canJoin&&clientId&&<button className="fm-btn primary" onClick={()=>{setError('');api('/session',{method:'POST'}).then(()=>setJoining(true)).catch(e=>setError(e.message));}}>Join with PayPal <ArrowUpRight size={16}/></button>}
-      {campaign.pledges.length>0&&<div className="fm-public-receipts"><h2>Your commitments</h2>
-        {campaign.pledges.map(p=><div className="fm-person" key={p.id}><strong>{p.name}</strong><span className={'fm-pledge-state '+p.state}>{p.state.replaceAll('_',' ')}</span>
-          {campaign.state==='open'&&['review','creating','authorizing','awaiting_approval'].includes(p.state)&&<button className="fm-text-button" onClick={()=>api('/firstmover/pledges/'+p.id+'/reconcile',{method:'POST'}).then(setCampaign).catch(e=>setError(e.message))}>Reconcile</button>}
-        </div>)}
-      </div>}
-    </article>}
+    {id&&<div className="fm-detail-nav">
+      <a className="fm-text-button" href="/"><ArrowLeft size={16}/> All campaigns</a>
+      <span className="fm-sandbox"><ShieldCheck size={15}/> PayPal Sandbox</span>
+    </div>}
+    {id&&!campaign&&!error&&<p className="fm-public-empty" role="status">Loading campaign…</p>}
+    {campaign&&<div className="fm-campaign-layout">
+      <article className="fm-campaign-story fm-enter">
+        {campaign.store_name&&<span className="fm-merchant-name">{campaign.store_name}</span>}
+        <h1>{terms.title}</h1>
+        <p className="fm-campaign-summary">{terms.description}</p>
+        <section className="fm-how-it-works" aria-labelledby="what-happens">
+          <h2 id="what-happens">What happens to my payment?</h2>
+          <div><span><Check size={18}/></span><p><strong>If the group fills</strong>The merchant collects the approved payment.</p></div>
+          <div><span><ArrowLeft size={18}/></span><p><strong>If the group falls short</strong>The merchant releases your PayPal hold.</p></div>
+        </section>
+      </article>
+      <section className="fm-campaign-card fm-commit-card fm-enter" aria-label="Campaign commitments">
+        <div className="fm-card-top"><span className="fm-tag neutral">{campaignStatus(campaign)}</span><button className="fm-text-button" onClick={()=>api(detail).then(row=>{setCampaign(row);setClientId(row.paypal_client_id);setError('');}).catch(e=>setError(e.message))}><RefreshCw size={15}/> Refresh</button></div>
+        <div className="fm-price"><strong>{money(terms.price_cents)}</strong><span>temporary hold per person</span></div>
+        <div className="fm-public-progress">
+          <strong>{campaign.authorized_count} of {terms.threshold} committed</strong>
+          <div className="fm-progress" role="progressbar" aria-label="Group commitments" aria-valuemin={0} aria-valuemax={terms.threshold} aria-valuenow={Math.min(campaign.authorized_count,terms.threshold)}>
+            <i style={{width:Math.min(100,campaign.authorized_count/terms.threshold*100)+'%'}}/>
+          </div>
+          <div className="fm-commit-seats" aria-hidden="true">
+            {Array.from({length:terms.threshold},(_,index)=><span className={index<campaign.authorized_count?'filled':''} key={index}>{index<campaign.authorized_count?<Check size={17}/>:<Plus size={16}/>}</span>)}
+          </div>
+          <p className="fm-campaign-deadline"><Clock3 size={16}/> <time dateTime={new Date(campaign.deadline*1000).toISOString()}>{new Date(campaign.deadline*1000).toLocaleString()}</time></p>
+        </div>
+        {terms.bonus_cents>0&&<div className="fm-bonus"><Sparkles size={22}/><div><strong>{money(terms.bonus_cents)} early bonus</strong><p>The merchant pays the first {terms.early_slots} confirmed participants if the group misses its target.</p></div></div>}
+        {canJoin&&clientId&&<button className="fm-btn primary fm-public-cta" disabled={openingCheckout} onClick={async()=>{
+          setError('');setOpeningCheckout(true);
+          try{await api('/session',{method:'POST'});setJoining(true);}
+          catch(e){setError(e.message);}
+          finally{setOpeningCheckout(false);}
+        }}>{openingCheckout?'Opening checkout…':'Join with PayPal'} <ArrowUpRight size={17}/></button>}
+        {campaign.pledges.length>0&&<div className="fm-public-receipts"><h2>Your commitments</h2>
+          {campaign.pledges.map(p=><div className="fm-person" key={p.id}><strong>{p.name}</strong><span className={'fm-pledge-state '+p.state}>{p.state.replaceAll('_',' ')}</span>
+            {campaign.state==='open'&&['review','creating','authorizing','awaiting_approval'].includes(p.state)&&<button className="fm-text-button" onClick={()=>api('/firstmover/pledges/'+p.id+'/reconcile',{method:'POST'}).then(setCampaign).catch(e=>setError(e.message))}>Reconcile</button>}
+          </div>)}
+        </div>}
+      </section>
+    </div>}
   </main>{joining&&<Checkout campaign={campaign} clientId={clientId} onClose={()=>setJoining(false)} onComplete={row=>{
     setCampaign(row);setJoining(false);setNotice('PayPal authorization verified. Your commitment is recorded.');
   }} onError={message=>{setError(message);setJoining(false);api(detail).then(setCampaign).catch(()=>{});}}/>}</div>;

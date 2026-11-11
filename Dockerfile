@@ -10,9 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PYTHONPATH=/app/backend
 WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
-COPY backend/caseweave/ /app/backend/caseweave/
+COPY backend/firstmover/ /app/backend/firstmover/
 COPY --from=ui /ui/dist/ /app/frontend/dist/
 RUN useradd --create-home --uid 10001 app && chown -R app:app /app
 USER app
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn caseweave.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "uvicorn firstmover.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

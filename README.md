@@ -6,7 +6,7 @@ Built for the PayPal AI Hackathon. The mechanism is inspired by **Alex Tabarrok'
 
 **Verification.** Both PayPal Sandbox settlement outcomes were observed on the original deployment. The merchant-workspace version still needs a hosted checkout and AI proposal check. Local tests mock PayPal and model HTTP.
 
-**Deployment targets.** [GitHub repository](https://github.com/abdel-saw/firstmover), [Render demo](https://firstmover.onrender.com/) and Astropods agent `firstmover-drafter`. The previous demo is at [caseweave.onrender.com](https://caseweave.onrender.com/).
+**Deployment targets.** [GitHub repository](https://github.com/abdel-saw/firstmover), [Render demo](https://firstmover-dn0t.onrender.com/) and Astropods agent `firstmover-drafter`.
 
 ## Why this is more than checkout
 
@@ -39,7 +39,7 @@ source .venv/bin/activate
 pip install -r backend/requirements-dev.txt
 npm ci --prefix frontend
 npm run build --prefix frontend
-python -m uvicorn caseweave.main:app --app-dir backend --host 127.0.0.1 --port 8000 --env-file .env
+python -m uvicorn firstmover.main:app --app-dir backend --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
 First copy `.env.example` to `.env`. To enable merchant PayPal setup locally, set a random, persistent `MERCHANT_ENCRYPTION_KEY` of at least 32 characters. The public campaign page is at http://127.0.0.1:8000/. Open http://127.0.0.1:8000/organizer to manage campaigns. Build the frontend again after UI edits. `COOKIE_SECURE=false` is for local HTTP; Render uses `true`.
@@ -74,7 +74,7 @@ From the FirstMover repository, publish and deploy the new worker. Use the actua
 
 ```powershell
 ast blueprint push
-ast blueprint deploy firstmover-drafter --var "DRAFTER_SHARED_TOKEN=@" --var "FIRSTMOVER_URL=https://firstmover.onrender.com" --wait
+ast blueprint deploy firstmover-drafter --var "DRAFTER_SHARED_TOKEN=@" --var "FIRSTMOVER_URL=https://firstmover-dn0t.onrender.com" --wait
 ```
 
 Use the same `DRAFTER_SHARED_TOKEN` in Render and the Astropods vault. The Render Blueprint enables `AI_TRANSPORT=astropods_queue`. Deploy the same revision to both services.
@@ -88,7 +88,7 @@ The per-process gateway limits remain six attempts/minute and 100 attempts/proce
 | Variable | Use |
 | --- | --- |
 | `MERCHANT_ENCRYPTION_KEY` | Stable, random server-only key of at least 32 characters. Required for storing merchant PayPal credentials. |
-| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `ORGANIZER_PASSWORD` | Optional legacy deployment settings. Merchants create accounts and connect PayPal through the dashboard. |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `ORGANIZER_PASSWORD` | Optional single-organizer deployment settings. Merchants create accounts and connect PayPal through the dashboard. |
 | `ADMIN_TOKEN` | Optional legacy API access. The FirstMover browser UI uses organizer sign-in. |
 | `DATABASE_URL` | SQLite locally or durable PostgreSQL. Existing `postgres://` Render URLs are supported. |
 | `COOKIE_SECURE` | `true` for HTTPS, `false` only for local HTTP. |
@@ -107,7 +107,7 @@ python -m pytest -q
 npm run build --prefix frontend
 ```
 
-New route-level tests use the real HTTP adapter with only PayPal's network boundary mocked. They exercise both settlement branches, exact-term consent, session ownership, payout identity and pending status, duplicate payer accounts, deadlines, duplicate operation prevention, lost capture acknowledgments, incorrect amounts, and partial settlement recovery. A worker/queue/model round trip covers AI proposals with model HTTP mocked. Archived CaseWeave tests remain in the suite.
+New route-level tests use the real HTTP adapter with only PayPal's network boundary mocked. They exercise both settlement branches, exact-term consent, session ownership, payout identity and pending status, duplicate payer accounts, deadlines, duplicate operation prevention, lost capture acknowledgments, incorrect amounts, and partial settlement recovery. A worker/queue/model round trip covers AI proposals with model HTTP mocked.
 
 These tests do not establish production security, economic effectiveness, real beneficiary receipt, or live PayPal account permissions.
 
