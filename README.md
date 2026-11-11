@@ -14,42 +14,11 @@ A group can remain stuck because each person will participate only if others do.
 
 This prototype is **not** a general escrow service, investment product, guaranteed funding mechanism, or segregated bonus reserve. The application coordinates ordinary PayPal APIs; PayPal does not enforce the campaign condition or provide cross-payment atomicity. Bonuses come from the organizer. Any production use requires PayPal policy and legal review.
 
-## Judge walkthrough
+## Run or deploy your own copy
 
-Open `/organizer` and create a merchant account. Local simulation works without a PayPal app:
+**Start with the [judge quickstart](docs/DEPLOYMENT.md).** It covers a fresh clone, Windows and macOS/Linux setup, Docker, both settlement simulations, and independent deployment with Render, PostgreSQL, PayPal Sandbox and Astropods. The local simulation works with the repository alone and requires no hosted credentials or credits.
 
-1. Open **Terms studio**. Edit the printmaking preset, or use **Draft terms with AI** if configured.
-2. Review the structured terms, maximum bonus liability, and execution mode. Select **Local simulation**, approve, and launch.
-3. Add three demo participants; click **Approve & fund group**. Inspect the simulated capture receipts.
-4. Launch another campaign and add one participant. Click **Advance deadline & settle**. The demo advances its own deadline, releases the simulated hold and pays a simulated early bonus.
-5. Inspect the audit trail and export the JSON record.
-
-Every simulated receipt is labeled `SIMULATED`. The deadline advance is available only in demo mode. Real sandbox payments cannot be fast-forwarded. A manual preset is never labeled AI-generated.
-
-## Run locally
-
-Python 3.12+ and Node.js 22+:
-
-```bash
-python -m venv .venv
-# macOS/Linux:
-source .venv/bin/activate
-# Windows PowerShell instead:
-# .\.venv\Scripts\Activate.ps1
-pip install -r backend/requirements-dev.txt
-npm ci --prefix frontend
-npm run build --prefix frontend
-python -m uvicorn firstmover.main:app --app-dir backend --host 127.0.0.1 --port 8000 --env-file .env
-```
-
-First copy `.env.example` to `.env`. To enable merchant PayPal setup locally, set a random, persistent `MERCHANT_ENCRYPTION_KEY` of at least 32 characters. The public campaign page is at http://127.0.0.1:8000/. Open http://127.0.0.1:8000/organizer to manage campaigns. Build the frontend again after UI edits. `COOKIE_SECURE=false` is for local HTTP; Render uses `true`.
-
-Or use Docker:
-
-```bash
-docker build -t firstmover .
-docker run --rm -p 8000:8000 --env-file .env firstmover
-```
+The [submission materials](docs/SUBMISSION.md) and [video walkthrough](docs/DEMO_SCRIPT.md) are in the repository.
 
 ## PayPal sandbox verification
 

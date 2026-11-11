@@ -1,34 +1,50 @@
-# FirstMover — submission draft
+# FirstMover Devpost submission
+
+## Project name
+
+FirstMover
 
 ## Tagline
 
-A reason to go first: AI helps define a conditional group purchase; PayPal captures a filled group or releases holds and pays organizer-funded early participation bonuses.
+Help small merchants fill group offers with PayPal commitments and optional early-buyer bonuses.
 
-## Description
+## Project description
 
-Some group purchases never happen because everyone waits for someone else to commit first. FirstMover explores a known economic mechanism, inspired by Alex Tabarrok's dominant assurance contracts: offer eligible early participants a small organizer-funded bonus if the group misses its target.
+Workshops, group classes and other small events often need a minimum turnout to run. A customer may want to join and still hesitate to commit before others do. FirstMover gives merchants a way to publish a conditional group offer. The merchant can fund a small bonus for eligible early buyers if the offer falls short.
 
-A merchant creates a private workspace, connects their PayPal Sandbox app from the dashboard and describes a group offer. AI proposes bounded, editable terms and identifies assumptions and unanswered questions. The organizer reviews the exact price, threshold, deadline, early cohort and maximum bonus liability before launch. Participants separately accept those terms and approve PayPal Sandbox authorization checkout.
+A merchant creates a private workspace, connects their own PayPal Sandbox app and describes an offer in plain English. An AI model served through the Astropods AI Gateway drafts editable terms, flags assumptions and proposes values for the price, minimum group size, decision window and optional early bonus. The merchant reviews the terms and maximum bonus liability before publishing. Buyers use a public link, accept the published terms and approve a temporary authorization through PayPal Sandbox.
 
-The organizer settles the result. A filled group requires verified captures. An unfilled group releases its holds before paying early bonuses through Payouts. Every operation is persisted before dispatch and independently read back. Unknown outcomes stay unresolved; recovery can refund verified captures and void remaining holds. The application does not claim atomic multi-payment settlement, segregated reserves, automatic legal enforcement or guaranteed demand improvement.
+When the group fills, the merchant approves settlement and FirstMover verifies the resulting captures. If the deadline passes below the target, the merchant settles the campaign, FirstMover verifies the release of the authorizations, and eligible early buyers receive any promised merchant-funded bonus through PayPal Payouts. The dashboard records provider outcomes in a settlement ledger and surfaces unresolved operations for reconciliation.
 
-The repository includes setup instructions for judges to explore both outcomes in local simulation. The public hosted campaign pages provide participant checkout for open sandbox campaigns. Sandbox offers with early bonuses require a successful USD 0.01 Payouts permission test in that merchant’s workspace; participants use distinct personal sandbox payer accounts.
+The project adapts the idea of dominant assurance contracts to a merchant workflow with AI-assisted drafting and PayPal Sandbox settlement. Judges can run both settlement outcomes locally without API keys and connect their own sandbox and model accounts to exercise the integrations.
 
-## Tools
+## Built with
 
-PayPal Orders v2 and Payments v2 implement authorization, capture, void, refund and reads. PayPal Payouts implements participation bonuses. Astropods hosts the outbound worker and AI Gateway for structured campaign proposals. Render hosts the API/UI. React/Vite, FastAPI and SQLAlchemy provide the application. OpenAI Codex supported implementation, debugging, tests and documentation; the runtime model is shown after an actual proposal response.
+- **PayPal Sandbox** — Orders v2 creates the checkout and authorizes commitments. Payments v2 handles capture, void and recovery refunds. Payouts sends and verifies the early bonuses.
+- **Astropods AI Gateway** — Runs the model behind Terms Studio. The worker turns a merchant brief into a bounded campaign proposal with rationale and questions. FirstMover validates the output before the merchant can review it.
+- **Render** — Hosts the app. The deployment supports PostgreSQL for persistent merchant workspaces, campaign states and settlement records.
+- **React, Vite, FastAPI and SQLAlchemy** — Implement the public campaign pages, merchant dashboard, API and persistence.
+- **OpenAI Codex** — Supported development, testing and documentation.
 
-## Deployment targets
+In the tools field, name the model displayed in the recorded successful proposal. The Astropods Blueprint supports `claude-haiku-4-5` and `claude-sonnet-4-6`.
 
-- Hosted: https://firstmover-dn0t.onrender.com/
-- Repository: https://github.com/abdel-saw/firstmover
-- License: MIT, at repository root.
-- Video: **not recorded yet**; must be public on YouTube and under three minutes.
+## Links and testing instructions
 
-## Verification language to finish before submission
+- [Hosted demo](https://firstmover-dn0t.onrender.com/)
+- [Merchant dashboard](https://firstmover-dn0t.onrender.com/organizer)
+- [Public GitHub repository](https://github.com/abdel-saw/firstmover) and [MIT license](../LICENSE)
+- [Judge quickstart and independent deployment](DEPLOYMENT.md)
+- **Public YouTube link** — add after recording and uploading.
 
-Both PayPal Sandbox settlement branches were observed on the previous deployment. Repeat checkout and settlement checks on the new service and verify live AI proposal generation before submitting the new links. Local tests mock PayPal and model HTTP.
+Open the hosted dashboard to create a merchant workspace. For an account-independent walkthrough, clone the repository and follow the local simulation steps in the judge quickstart. For live integration testing on your own deployment, the same guide covers creating PayPal Sandbox accounts, connecting a merchant app and enabling an AI provider.
 
-## Credits and novelty
+## Final submission checklist
 
-Credit Tabarrok's existing mechanism and acknowledge implementations such as EnsureDone. The proposed contribution is an AI-assisted PayPal Sandbox realization with human-approved terms and inspectable operation state, not invention of refund bonuses. De Bono's provocation technique informed the exploration. No affiliation or "first ever" claim.
+- Confirm the public GitHub repository and MIT license are visible in a signed-out browser.
+- Confirm the hosted homepage and `/api/health`. If you record a live AI proposal or sandbox settlement, verify the model label and provider results before making those claims.
+- Record the desktop browser walkthrough using the [timed script](DEMO_SCRIPT.md). Check the exported runtime is below three minutes.
+- Upload the video to YouTube as **Public**. Open the link while signed out to verify it.
+- Paste the description, tools, hosted URL, public repository and YouTube URL into Devpost. Include the judge quickstart link in the testing instructions.
+- Submit before **November 12, 2026 at 21:00 Morocco time**. The official deadline is noon Pacific Standard Time. The judging period runs through December 15. Check whether your Render database and Astropods access cover the judging period.
+
+[Official Devpost rules](https://paypalaihackathon.devpost.com/rules)

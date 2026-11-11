@@ -29,16 +29,9 @@ Early eligibility is computed by successful authorization completion time, not b
 
 The advertised maximum bonus liability excludes PayPal fees. It is an internal calculation, not proof of a funded or segregated reserve. An API success is not a guarantee against later reversals or funding-provider delays.
 
-## Suggested video, under three minutes
+## Record the demo
 
-- 0:00–0:20: explain the coordination problem and organizer-funded failure bonus. Credit the existing assurance-contract idea.
-- 0:20–0:45: generate a real AI proposal, inspect assumptions, edit and approve structured terms.
-- 0:45–1:25: show the actual verified sandbox failure branch: buyer-approved hold, missed threshold, independently read void, bonus SUCCESS. Hide operator tokens, account emails and secrets.
-- 1:25–1:55: show the verified filled branch and its capture receipts. Only show real provider IDs if the live test actually completed.
-- 1:55–2:20: inspect the operation audit and explain unknown/partial settlement handling.
-- 2:20–2:40: show the hosted URL, repository, tools and prototype limits. Do not claim economic improvements from this demo.
-
-If any branch uses local simulation or saved results, label it visibly and state what the recording actually establishes. No third-party music or media is needed.
+Use the [timed screen-recording script](DEMO_SCRIPT.md) and the [judge deployment guide](DEPLOYMENT.md).
 
 ## Research and feasibility references
 
