@@ -26,7 +26,7 @@ The project adapts the idea of dominant assurance contracts to a merchant workfl
 - **React, Vite, FastAPI and SQLAlchemy** — Implement the public campaign pages, merchant dashboard, API and persistence.
 - **OpenAI Codex** — Supported development, testing and documentation.
 
-In the tools field, name the model displayed in the recorded successful proposal. The Astropods Blueprint supports `claude-haiku-4-5` and `claude-sonnet-4-6`.
+The demo uses Claude Haiku 4.5 (`claude-haiku-4-5`) for campaign proposals.
 
 ## Links and testing instructions
 
@@ -34,7 +34,7 @@ In the tools field, name the model displayed in the recorded successful proposal
 - [Merchant dashboard](https://firstmover-dn0t.onrender.com/organizer)
 - [Public GitHub repository](https://github.com/abdel-saw/firstmover) and [MIT license](../LICENSE)
 - [Judge quickstart and independent deployment](DEPLOYMENT.md)
-- **Public YouTube link** — add after recording and uploading.
+- [FirstMover demo video on YouTube](https://youtu.be/yU365gwfXNg)
 
 Open the hosted dashboard to create a merchant workspace. For an account-independent walkthrough, clone the repository and follow the local simulation steps in the judge quickstart. For live integration testing on your own deployment, the same guide covers creating PayPal Sandbox accounts, connecting a merchant app and enabling an AI provider.
 
