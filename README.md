@@ -4,7 +4,9 @@
 
 Built for the PayPal AI Hackathon. The mechanism is inspired by **Alex Tabarrok's dominant assurance contracts**, not invented here. De Bono's provocation technique helped frame the question: *what if a purchase that never happens sometimes pays the buyer?*
 
-**Verification.** Both PayPal Sandbox settlement outcomes were observed on the original deployment. The merchant-workspace version still needs a hosted checkout and AI proposal check. Local tests mock PayPal and model HTTP.
+**Verified in the hosted demo.** A merchant generated editable terms with Claude Haiku 4.5 through Astropods. Buyers approved PayPal Sandbox checkout for two campaigns. Sunday fell short, so FirstMover verified the release of a ten-dollar hold and a one-dollar merchant-funded payout. Saturday filled, and FirstMover verified two ten-dollar captures. The automated suite uses mocked PayPal and model HTTP.
+
+[Watch the demo](https://youtu.be/yU365gwfXNg) · [Open FirstMover](https://firstmover-dn0t.onrender.com/)
 
 **Deployment targets.** [GitHub repository](https://github.com/abdel-saw/firstmover), [Render demo](https://firstmover-dn0t.onrender.com/) and Astropods agent `firstmover-drafter`.
 
@@ -13,6 +15,28 @@ Built for the PayPal AI Hackathon. The mechanism is inspired by **Alex Tabarrok'
 A group can remain stuck because each person will participate only if others do. The organizer offers a small, capped failure bonus to early participants. PayPal's separate financial states implement the experiment: approve → authorize → capture **or** void → payout. An authorization is not a completed payment, and releasing a hold is not paying a bonus.
 
 This prototype is **not** a general escrow service, investment product, guaranteed funding mechanism, or segregated bonus reserve. The application coordinates ordinary PayPal APIs; PayPal does not enforce the campaign condition or provide cross-payment atomicity. Bonuses come from the organizer. Any production use requires PayPal policy and legal review.
+
+## Architecture
+
+```mermaid
+flowchart TB
+    browser["React web app<br/>Merchant dashboard and public campaign page"]
+    api["FastAPI on Render<br/>Campaigns, checkout and settlement"]
+    store["Database<br/>PostgreSQL or local SQLite"]
+    paypal["PayPal Sandbox<br/>Orders, Payments and Payouts"]
+    worker["Astropods worker<br/>Claims and completes draft jobs"]
+    model["Astropods AI Gateway<br/>Claude Haiku 4.5 in the demo"]
+
+    browser -->|"Campaign terms and merchant approvals"| api
+    browser -->|"Buyer approval through PayPal JS SDK"| paypal
+    api -->|"Workspaces, encrypted credentials, campaigns and ledger"| store
+    api -->|"Authorize, capture, void, refund, pay bonuses and verify outcomes"| paypal
+    worker -->|"Claim jobs and return proposals over HTTPS"| api
+    worker -->|"Generate structured terms from the brief"| model
+```
+
+- **Payment flow.** The buyer approves the order in the browser. FastAPI uses the campaign merchant's Sandbox credentials to authorize the hold and records the provider result in the settlement ledger. The merchant approves settlement from the dashboard.
+- **AI flow.** FastAPI queues the merchant's brief. The Astropods worker polls the queue with a shared service token, calls the model, and returns a structured proposal. FastAPI validates the result, and the merchant can edit it before launch.
 
 ## Run or deploy your own copy
 
